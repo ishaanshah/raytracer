@@ -84,13 +84,15 @@ int main()
         // Set uniforms
         unsigned int ID = shader.ID;
 
-        shader.setInt("samples", 1);
+        shader.setInt("samples", 10);
+        shader.setInt("numBounces", 8);
+        shader.setFloat("time", glfwGetTime());
 
         // Light properties
         shader.setFloat("intensity", 1.0);
 
         // Camera properties
-        shader.setFloat("focalDistance", 0.65);
+        shader.setFloat("focalDistance", 2);
         shader.setFloat("exposure", 2.2);
         glUniform2f(glGetUniformLocation(ID, "resolution"), SCR_SIZE, SCR_SIZE);
 
