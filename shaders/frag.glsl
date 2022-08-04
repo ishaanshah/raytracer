@@ -35,10 +35,12 @@ struct Cuboid {
 };
 
 struct Rectangle {
-  vec3 position; // Center of rectangle
-  vec3 normal;
-  float height;
-  float width;
+  vec4 plane;
+  vec3 center;
+  vec3 dirX;
+  vec3 dirY;
+  float lenX;
+  float lenY;
 };
 
 struct Triangle {
@@ -56,22 +58,42 @@ struct Material {
 
 // Wals
 vec4[5] walls = vec4[5](
-  vec4(0, 1, 0, -5),
-  vec4(0, -1, 0, -5),
-  vec4(1, 0, 0, -5),
-  vec4(-1, 0, 0, -5),
-  vec4(0, 0, 1, -5)
+  vec4(0, 1, 0, 5),
+  vec4(0, -1, 0, 5),
+  vec4(1, 0, 0, 5),
+  vec4(-1, 0, 0, 5),
+  vec4(0, 0, 1, 5)
 );
 Material[5] wallsMat = Material[5](
-  Material(0, 1, vec3(0.5, 0.0, 0.5)),
-  Material(0, 1, vec3(0.0, 0.5, 0.5)),
+  Material(0, 1, vec3(0.1, 0.1, 0.1)),
+  Material(0, 1, vec3(0.0, 0.0, 0.5)),
   Material(0, 1, vec3(0.0, 1.0, 0.0)),
   Material(0, 1, vec3(1.0, 0.0, 0.0)),
   Material(0, 1, vec3(0.5, 0.5, 0.5))
 );
 
 // Light
-vec4 light = vec4(0, -1, 0, -5),
+Rectangle light = Rectangle(
+  vec4(0, -1, 0, 5-eps),
+  vec3(0, 5-eps, -4),
+  vec3(1, 0, 0),
+  vec3(0, 0, 1),
+  5, 1
+);
+Material lightMat = Material(2, 0, vec3(1));
+
+// Camera is placed at (0, 0, 0) looking at (0, 0, -1)
+Ray genRay() {
+  Ray ray;
+
+  vec2 xy = 2.0*gl_FragCoord.xy/resolution - vec2(1.0);
+
+  // TODO: Antialiasing by subsampling pixel
+  ray.origin = vec3(0);
+  ray.dir = normalize(vec3(xy, -focalDistance) - ray.origin);
+
+  return ray;
+}
 
 // Intersection
 bool intersectPlane(Ray ray, vec4 plane, out float t)
@@ -80,37 +102,48 @@ bool intersectPlane(Ray ray, vec4 plane, out float t)
   return t > 0.0;
 }
 
-// Camera is placed at (0, 0, 0) looking at (0, 0, -1)
-Ray genRay()
-{
-  Ray ray;
-
-  vec2 xy = 2.0*gl_FragCoord.xy/resolution - vec2(1.0);
-
-  // TODO: evaluate the use of this
-  ray.dir = normalize(vec3(xy, -focalDistance));
-  // float ft = focalDistance/ray.dir.z;
-  float ft = -1;
-  vec3 pFocus = ray.dir*ft;
-
-  // TODO: Antialiasing by subsampling pixel
-  ray.origin = vec3(0);
-  ray.dir = normalize(pFocus - ray.origin);
-
-  return ray;
+bool intersectRectangle(Ray ray, Rectangle rect, out float t) {
+  // Check if on correct side of plane
+  if (!intersectPlane(ray, rect.plane, t)) {
+    return false;
+  }
+  // Check if lies inside rectangle
+  vec3 newPos = ray.origin + ray.dir*t;
+  newPos = newPos - rect.center;
+  float projX = dot(newPos, rect.dirX);
+  float projY = dot(newPos, rect.dirY);
+  if (abs(projX) < rect.lenX / 2 && abs(projY) < rect.lenY / 2) {
+    return true;
+  }
+  return false;
 }
 
-bool intersect(Ray ray, out float t, out Material mat) {
+// TODO: BVH
+bool intersect(Ray ray, out float t, out Material mat, bool shadow) {
   bool intersect = false;
   t = inf; 
   float tmp = 0;
 
-  for (int i = 0; i < 5; i += 1) {
-    if (intersectPlane(ray, walls[i], tmp)) {
+  // Light doesn't cast shadow
+  if (!shadow) {
+    if (intersectRectangle(ray, light, tmp)) {
       intersect = true;
       if (tmp < t) {
         t = tmp;
-        mat = wallsMat[i];
+        mat = lightMat;
+      }
+    }
+  }
+
+  // Walls don't cast shadows
+  if (!shadow) {
+    for (int i = 0; i < 5; i += 1) {
+      if (intersectPlane(ray, walls[i], tmp)) {
+        intersect = true;
+        if (tmp < t) {
+          t = tmp;
+          mat = wallsMat[i];
+        }
       }
     }
   }
@@ -130,7 +163,7 @@ vec3 rotation_y(vec3 v, float a)
 vec3 rayTrace(Ray ray) {
   Material mat;
   float t;
-  if (intersect(ray, t, mat)) {
+  if (intersect(ray, t, mat, false)) {
     return mat.color;
   }
   return vec3(0);

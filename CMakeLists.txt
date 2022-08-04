@@ -33,10 +33,6 @@ target_include_directories("glad" PRIVATE "${GLAD_DIR}/include")
 target_include_directories(${PROJECT_NAME} PRIVATE "${GLAD_DIR}/include")
 target_link_libraries(${PROJECT_NAME} "glad" "${CMAKE_DL_LIBS}")
 
-# GLM
-add_subdirectory(${LIB_DIR}/glm)
-target_link_libraries(${PROJECT_NAME} glm::glm)
-
 # ImGui
 # file(GLOB IMGUI_SOURCES ${LIB_DIR}/imgui/*.cpp)
 # add_library("imgui" STATIC "${IMGUI_SOURCES}" ${LIB_DIR}/imgui/imgui_impl_glfw.cpp)
