@@ -2,6 +2,7 @@
 
 // #define DEBUG_LOCATION
 // #define DEBUG_NORMALS
+// #define USE_NEE
 
 out vec4 fragColor;
 
@@ -89,7 +90,7 @@ Cuboid cuboid = Cuboid(vec3(2), vec3(-1.5, -4, 1));
 Material cuboidMat = Material(0, 0.5, vec3(0.5, 1.0, 0.0));
 
 // Light
-Rectangle light = Rectangle(
+Rectangle lightRect = Rectangle(
   vec4(0, -1, 0, 5-eps),
   vec3(0, 5-eps, 0),
   vec3(1, 0, 0),
@@ -209,7 +210,7 @@ bool intersect(Ray ray, bool shadow, out float t, out Material mat, out vec3 nor
 
   // Light doesn't cast shadow
   if (!shadow) {
-    if (intersectRectangle(ray, light, tmpT, tmpNorm)) {
+    if (intersectRectangle(ray, lightRect, tmpT, tmpNorm)) {
       intersect = true;
       if (tmpT < t) {
         t = tmpT;
@@ -292,14 +293,23 @@ float sampleVndfPdf(vec3 V, vec3 H, float D) {
 }
 
 // Light sampling
-vec3 sampleLight(Rect light, out float pdf, vec2 rng) {
-  pdf = 1 / (light.lenX * light.lenY)
-  float x = (rng.x - 0.5) * light.lenX + light.center.x
-  float y = (rng.y - 0.5) * light.lenY + light.center.y
-  return vec3(x, y, z);
+vec3 sampleLight(Rectangle light, out float pdf, vec2 rng) {
+  pdf = 1 / (light.lenX * light.lenY);
+  float x = (rng.x - 0.5) * light.lenX + light.center.x;
+  float y = (rng.y - 0.5) * light.lenY + light.center.y;
+  return vec3(x, y, light.center.z);
 }
 
-vec3 rotation_y(vec3 v, float a) {
+// Convert from area measure to angle measure
+float pdfA2W(float pdf, float dist2, float cos_theta) {
+    float abs_cos_theta = abs(cos_theta);
+    if(abs_cos_theta < 1e-8)
+        return 0.0;
+
+    return pdf * dist2 / abs_cos_theta;
+}
+
+vec3 rotationY(vec3 v, float a) {
     vec3 r;
     r.x =  v.x*cos(a) + v.z*sin(a);
     r.y =  v.y;
@@ -339,16 +349,17 @@ vec3 rayTrace(Ray ray) {
     mat3 onb = constructONBFrisvad(normal);
     vec3 V = -ray.dir;
     // Next event estimation
+    #ifdef USE_NEE
     {
       float lightPdf;
-      vec3 pos = sampleLight(light, lightPdf, getRandom());
+      vec3 pos = sampleLight(lightRect, lightPdf, getRandom());
       vec3 V = -ray.dir;
       vec3 L = normalize(pos - ray.origin);
 
-      float t_tmp;
-      float t_mat;
-      vec3 t_normal;
-      bool hit = intersect(Ray(Ray.origin, L), true, t_tmp, t_mat, t_normal); 
+      float tTmp;
+      Material tMat;
+      vec3 tNormal;
+      bool hit = intersect(Ray(ray.origin, L), true, tTmp, tMat, tNormal); 
       if (hit && mat.type == 2) {
         vec3 H = normalize(V + L);
 
@@ -358,17 +369,20 @@ vec3 rayTrace(Ray ray) {
         vec3 brdf =  d * g * f;
         brdf = brdf / (4 * max(dot(normal, H), eps) * max(dot(normal, L), eps));
         float brdfPdf = sampleVndfPdf(V, H, d);
+        float lightPdfW = pdfA2W(lightPdf, dot(L, L), dot(-L, tNormal));
 
-        float misW = lightPdf / (lightPdf + brdfPdf);
+        float misW = lightPdfW / (lightPdfW + brdfPdf);
 
-        contrib += misW * mat.color * misW * brdf / lightPdf;
+        contrib += misW * mat.color * tp * brdf / lightPdfW;
       }
     }
+    #endif
     {
       Material nextMat;
       vec3 nextNormal;
       vec3 H = sampleVndf(V, mat.roughness, getRandom(), onb);
       vec3 L = normalize(reflect(ray.dir, H));
+      return H;
 
       // New ray
       ray = Ray(ray.origin + t*ray.dir + L*eps, L);
@@ -386,7 +400,17 @@ vec3 rayTrace(Ray ray) {
       float brdfPdf = sampleVndfPdf(V, H, d);
 
       if (mat.type == 2) {
-        if (
+        #ifdef USE_NEE
+        float lightPdf;
+        sampleLight(lightRect, lightPdf, getRandom());
+        float lightPdfW = pdfA2W(lightPdf, dot(L, L), dot(-L, nextNormal));
+        float misW = brdfPdf / (lightPdfW + brdfPdf);
+        #else
+        float misW = 1;
+        #endif
+
+        contrib += misW * mat.color * tp * brdf / brdfPdf;
+        break;
       }
 
       tp *= dot(normal, L) * brdf / brdfPdf;
@@ -399,7 +423,7 @@ vec3 rayTrace(Ray ray) {
 }
 
 void main() {
-  flatIdx = int(gl_FragCoord.x * resolution.x + gl_FragCoord.y);
+  flatIdx = int(gl_FragCoord.x * resolution.x + gl_FragCoord.y * resolution.y);
   Ray ray = genRay();
 
   vec3 op = vec3(0);
@@ -407,5 +431,5 @@ void main() {
     op += rayTrace(ray);
   }
 
-  fragColor = vec4(op / samples, 1);
+  fragColor = vec4(pow(exposure * op / samples, vec3(1.0 / 2.2)), 1.0);
 }
