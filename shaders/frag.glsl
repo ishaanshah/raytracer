@@ -23,7 +23,7 @@ const float pi = 3.14159265;
 const float inf = 99999999.0;
 const float eps = 1e-6;
 
-int seed = 0;
+int seed = int(time);
 int flatIdx = 0;
 
 // Primitives
@@ -73,8 +73,8 @@ vec4[5] walls = vec4[5](
   vec4(0, 0, 1, 5)
 );
 Material[5] wallsMat = Material[5](
-  Material(0, 1, vec3(0.1, 0.1, 0.1)),
-  Material(0, 1, vec3(0.0, 0.0, 0.5)),
+  Material(0, 1, vec3(0.5, 0.5, 0.5)),
+  Material(0, 1, vec3(0.5, 0.5, 0.5)),
   Material(0, 1, vec3(0.0, 1.0, 0.0)),
   Material(0, 1, vec3(1.0, 0.0, 0.0)),
   Material(0, 1, vec3(0.5, 0.5, 0.5))
@@ -82,11 +82,11 @@ Material[5] wallsMat = Material[5](
 
 // Sphere
 Sphere sphere = Sphere(vec3(1.5, -3.5, 3), 1.5);
-Material sphereMat = Material(1, 0, vec3(0.3, 0.1, 0.4));
+Material sphereMat = Material(1, 0, vec3(0.8, 1.0, 0.8));
 
 // Cuboid
 Cuboid cuboid = Cuboid(vec3(2), vec3(-1.5, -4, 1));
-Material cuboidMat = Material(0, 0.5, vec3(0.5, 0.5, 0.0));
+Material cuboidMat = Material(0, 0.5, vec3(0.5, 1.0, 0.0));
 
 // Light
 Rectangle light = Rectangle(
@@ -305,7 +305,7 @@ vec3 rayTrace(Ray ray) {
   float t;
   vec3 normal;
   vec3 Le = vec3(0);
-  float tp = 1;
+  vec3 tp = vec3(1);
 
   #ifdef DEBUG_LOCATION
   if (intersect(ray, false, t, mat, normal)) {
@@ -337,6 +337,15 @@ vec3 rayTrace(Ray ray) {
     vec3 H = sampleVndf(V, mat.roughness, getRandom(), onb);
     vec3 L = normalize(reflect(ray.dir, H));
 
+    float d = D(normal, H, mat.roughness);
+    float g = G(normal, V, L, mat.roughness);
+    vec3 f = F(L, H, mat.color);
+    vec3 brdf =  d * g * f;
+    brdf = brdf / (4 * max(dot(normal, H), eps) * max(dot(normal, L), eps));
+    float brdfPdf = sampleVndfPdf(V, H, d);
+
+    tp *= brdf / brdfPdf;
+
     // New ray
     ray = Ray(ray.origin + t*ray.dir + L*eps, L);
   }
@@ -348,5 +357,10 @@ void main() {
   flatIdx = int(gl_FragCoord.x * resolution.x + gl_FragCoord.y);
   Ray ray = genRay();
 
-  fragColor = vec4(rayTrace(ray), 1);
+  vec3 op = vec3(0);
+  for (int i = 0; i < samples; i += 1) {
+    op += rayTrace(ray);
+  }
+
+  fragColor = vec4(op / samples, 1);
 }
