@@ -1,6 +1,7 @@
 #version 330
 
-#define DEBUG_NORMALS
+// #define DEBUG_LOCATION
+// #define DEBUG_NORMALS
 
 out vec4 fragColor;
 
@@ -26,8 +27,7 @@ int seed = 0;
 int flatIdx = 0;
 
 // Primitives
-struct Ray
-{
+struct Ray {
   vec3 origin;
   vec3 dir;
 };
@@ -96,20 +96,7 @@ Rectangle light = Rectangle(
   vec3(0, 0, 1),
   5, 5
 );
-Material lightMat = Material(2, 0, vec3(1));
-
-// Camera is placed at (0, 0, 0) looking at (0, 0, -1)
-Ray genRay() {
-  Ray ray;
-
-  vec2 xy = 2.0*gl_FragCoord.xy/resolution - vec2(1.0);
-
-  // TODO: Antialiasing by subsampling pixel
-  ray.origin = vec3(0, 0, 15);
-  ray.dir = normalize(vec3(xy, 15-focalDistance) - ray.origin);
-
-  return ray;
-}
+Material lightMat = Material(2, 0, vec3(5));
 
 // Random number generator
 void encryptTea(inout uvec2 arg) {
@@ -133,9 +120,38 @@ vec2 getRandom() {
   return fract(vec2(arg) / vec2(0xffffffffu));
 }
 
+mat3 constructONBFrisvad(vec3 normal) {
+	mat3 ret;
+	ret[1] = normal;
+	if(normal.z < -0.999805696) {
+		ret[0] = vec3(0.0, -1.0, 0.0);
+		ret[2] = vec3(-1.0, 0.0, 0.0);
+	}
+	else {
+		float a = 1.0 / (1.0 + normal.z);
+		float b = -normal.x * normal.y * a;
+		ret[0] = vec3(1.0 - normal.x * normal.x * a, b, -normal.x);
+		ret[2] = vec3(b, 1.0 - normal.y * normal.y * a, -normal.y);
+	}
+	return ret;
+}
+
+// Camera is placed at (0, 0, 0) looking at (0, 0, -1)
+Ray genRay() {
+  Ray ray;
+
+  vec2 xy = 2.0*gl_FragCoord.xy/resolution - vec2(1.0);
+
+  // TODO: Antialiasing by subsampling pixel
+  ray.origin = vec3(0, 0, 15);
+  ray.dir = normalize(vec3(xy, 15-focalDistance) - ray.origin);
+
+  return ray;
+}
+
+
 // Intersection
-bool intersectPlane(Ray ray, vec4 plane, out float t, out vec3 normal)
-{
+bool intersectPlane(Ray ray, vec4 plane, out float t, out vec3 normal) {
   t = -dot(plane, vec4(ray.origin, 1.0)) / dot(plane.xyz, ray.dir);
   normal = plane.xyz;
   return t > 0.0;
@@ -158,7 +174,7 @@ bool intersectRectangle(Ray ray, Rectangle rect, out float t, out vec3 normal) {
 }
 
 bool intersectCuboid(Ray ray, Cuboid cuboid, out float t, out vec3 normal) {
-  // Check cuboid 
+  // Check cuboid
   return true;
 }
 
@@ -179,7 +195,7 @@ bool intersectSphere(Ray ray, Sphere sphere, out float t, out vec3 normal) {
 // TODO: BVH
 bool intersect(Ray ray, bool shadow, out float t, out Material mat, out vec3 normal) {
   bool intersect = false;
-  t = inf; 
+  t = inf;
   float tmpT = 0;
   vec3 tmpNorm;
 
@@ -239,13 +255,44 @@ float G(vec3 N, vec3 V, vec3 L, float roughness) {
   return G_V * G_L;
 }
 
-vec3 F(vec3 look, vec3 H, vec3 F0) {
-  float LdotH = dot(look, H);
+vec3 F(vec3 L, vec3 H, vec3 F0) {
+  float LdotH = dot(L, H);
   return F0 + (1.0 - F0) * pow(1.0 - LdotH, 5.0);
 }
 
-vec3 rotation_y(vec3 v, float a)
-{
+// Adapted from https://jcgt.org/published/0007/04/01/
+vec3 sampleVndf(vec3 V, float roughness, vec2 rng, mat3 onb) {
+  V = vec3(dot(V, onb[0]), dot(V, onb[2]), dot(V, onb[1]));
+
+	// Transforming the view direction to the hemisphere configuration
+	V = normalize(vec3(roughness * V.x, roughness * V.y, V.z));
+
+	// Orthonormal basis (with special case if cross product is zero)
+	float lensq = V.x * V.x + V.y * V.y;
+	vec3 T1 = lensq > 0. ? vec3(-V.y, V.x, 0) * inversesqrt(lensq) : vec3(1,0,0);
+	vec3 T2 = cross(V, T1);
+
+	// Parameterization of the projected area
+	float r = sqrt(rng.x);
+	float phi = 2.0 * pi * rng.y;
+	float t1 = r * cos(phi);
+	float t2 = r * sin(phi);
+	float s = 0.5 * (1.0 + V.z);
+	t2 = (1.0 - s)*sqrt(1.0 - t1*t1) + s*t2;
+
+	// Reprojection onto hemisphere
+	vec3 Nh = t1*T1 + t2*T2 + sqrt(max(0.0, 1.0 - t1*t1 - t2*t2))*V;
+	// Transforming the normal back to the ellipsoid configuration
+	vec3 Ne = normalize(vec3(roughness * Nh.x, max(0.0, Nh.z), roughness * Nh.y));
+	return normalize(onb * Ne);
+}
+
+float sampleVndfPdf(vec3 V, vec3 H, float D) {
+  float VdotH = dot(V, H);
+  return VdotH > 0 ? D / (4 * VdotH) : 0;
+}
+
+vec3 rotation_y(vec3 v, float a) {
     vec3 r;
     r.x =  v.x*cos(a) + v.z*sin(a);
     r.y =  v.y;
@@ -273,9 +320,25 @@ vec3 rayTrace(Ray ray) {
   #endif
 
   for (int i = 0; i < numBounces; i++) {
+    // Didn't hit anything
     if (!intersect(ray, false, t, mat, normal)) {
       break;
     }
+
+    // Hit a light source
+    if (mat.type == 2) {
+      Le = mat.color;
+      break;
+    }
+
+    // Hit some other surface
+    mat3 onb = constructONBFrisvad(normal);
+    vec3 V = -ray.dir;
+    vec3 H = sampleVndf(V, mat.roughness, getRandom(), onb);
+    vec3 L = normalize(reflect(ray.dir, H));
+
+    // New ray
+    ray = Ray(ray.origin + t*ray.dir + L*eps, L);
   }
 
   return tp*Le;
