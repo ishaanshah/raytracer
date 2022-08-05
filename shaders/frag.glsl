@@ -149,7 +149,6 @@ Ray genRay() {
   return ray;
 }
 
-
 // Intersection
 bool intersectPlane(Ray ray, vec4 plane, out float t, out vec3 normal) {
   t = -dot(plane, vec4(ray.origin, 1.0)) / dot(plane.xyz, ray.dir);
@@ -292,6 +291,14 @@ float sampleVndfPdf(vec3 V, vec3 H, float D) {
   return VdotH > 0 ? D / (4 * VdotH) : 0;
 }
 
+// Light sampling
+vec3 sampleLight(Rect light, out float pdf, vec2 rng) {
+  pdf = 1 / (light.lenX * light.lenY)
+  float x = (rng.x - 0.5) * light.lenX + light.center.x
+  float y = (rng.y - 0.5) * light.lenY + light.center.y
+  return vec3(x, y, z);
+}
+
 vec3 rotation_y(vec3 v, float a) {
     vec3 r;
     r.x =  v.x*cos(a) + v.z*sin(a);
@@ -304,7 +311,7 @@ vec3 rayTrace(Ray ray) {
   Material mat;
   float t;
   vec3 normal;
-  vec3 Le = vec3(0);
+  vec3 contrib = vec3(0);
   vec3 tp = vec3(1);
 
   #ifdef DEBUG_LOCATION
@@ -319,38 +326,76 @@ vec3 rayTrace(Ray ray) {
   }
   #endif
 
-  for (int i = 0; i < numBounces; i++) {
-    // Didn't hit anything
-    if (!intersect(ray, false, t, mat, normal)) {
-      break;
-    }
-
-    // Hit a light source
-    if (mat.type == 2) {
-      Le = mat.color;
-      break;
-    }
-
-    // Hit some other surface
-    mat3 onb = constructONBFrisvad(normal);
-    vec3 V = -ray.dir;
-    vec3 H = sampleVndf(V, mat.roughness, getRandom(), onb);
-    vec3 L = normalize(reflect(ray.dir, H));
-
-    float d = D(normal, H, mat.roughness);
-    float g = G(normal, V, L, mat.roughness);
-    vec3 f = F(L, H, mat.color);
-    vec3 brdf =  d * g * f;
-    brdf = brdf / (4 * max(dot(normal, H), eps) * max(dot(normal, L), eps));
-    float brdfPdf = sampleVndfPdf(V, H, d);
-
-    tp *= brdf / brdfPdf;
-
-    // New ray
-    ray = Ray(ray.origin + t*ray.dir + L*eps, L);
+  bool hit = intersect(ray, false, t, mat, normal);
+  if (!hit) {
+    return vec3(0);
   }
 
-  return tp*Le;
+  if (mat.type == 2) {
+    return mat.color;
+  }
+
+  for (int i = 0; i < numBounces; i++) {
+    mat3 onb = constructONBFrisvad(normal);
+    vec3 V = -ray.dir;
+    // Next event estimation
+    {
+      float lightPdf;
+      vec3 pos = sampleLight(light, lightPdf, getRandom());
+      vec3 V = -ray.dir;
+      vec3 L = normalize(pos - ray.origin);
+
+      float t_tmp;
+      float t_mat;
+      vec3 t_normal;
+      bool hit = intersect(Ray(Ray.origin, L), true, t_tmp, t_mat, t_normal); 
+      if (hit && mat.type == 2) {
+        vec3 H = normalize(V + L);
+
+        float d = D(normal, H, mat.roughness);
+        float g = G(normal, V, L, mat.roughness);
+        vec3 f = F(L, H, mat.color);
+        vec3 brdf =  d * g * f;
+        brdf = brdf / (4 * max(dot(normal, H), eps) * max(dot(normal, L), eps));
+        float brdfPdf = sampleVndfPdf(V, H, d);
+
+        float misW = lightPdf / (lightPdf + brdfPdf);
+
+        contrib += misW * mat.color * misW * brdf / lightPdf;
+      }
+    }
+    {
+      Material nextMat;
+      vec3 nextNormal;
+      vec3 H = sampleVndf(V, mat.roughness, getRandom(), onb);
+      vec3 L = normalize(reflect(ray.dir, H));
+
+      // New ray
+      ray = Ray(ray.origin + t*ray.dir + L*eps, L);
+
+      // Didn't hit anything
+      if (!intersect(ray, false, t, nextMat, nextNormal)) {
+        break;
+      }
+
+      float d = D(normal, H, mat.roughness);
+      float g = G(normal, V, L, mat.roughness);
+      vec3 f = F(L, H, mat.color);
+      vec3 brdf =  d * g * f;
+      brdf = brdf / (4 * max(dot(normal, H), eps) * max(dot(normal, L), eps));
+      float brdfPdf = sampleVndfPdf(V, H, d);
+
+      if (mat.type == 2) {
+        if (
+      }
+
+      tp *= dot(normal, L) * brdf / brdfPdf;
+      mat = nextMat;
+      normal = nextNormal;
+    }
+  }
+
+  return contrib;
 }
 
 void main() {
