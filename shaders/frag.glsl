@@ -2,14 +2,14 @@
 
 // #define DEBUG_LOCATION
 // #define DEBUG_NORMALS
-// #define USE_NEE
+#define USE_NEE
 #define USE_VNDF
 
 out vec4 fragColor;
 
 // Previous frame
 uniform sampler2D prevFrame; 
-uniform int samples;
+uniform float acc;
 
 // Render settings
 uniform int numBounces;
@@ -80,11 +80,11 @@ vec4[5] walls = vec4[5](
   vec4(0, 0, 1, 5)
 );
 Material[5] wallsMat = Material[5](
-  Material(0, 0.8, vec3(0.5, 0.5, 0.5)),
-  Material(0, 0.8, vec3(0.5, 0.5, 0.5)),
-  Material(0, 0.8, vec3(0.0, 1.0, 0.0)),
-  Material(0, 0.8, vec3(1.0, 0.0, 0.0)),
-  Material(0, 0.8, vec3(0.5, 0.5, 0.5))
+  Material(0, 0.2, vec3(0.5, 0.5, 0.5)),
+  Material(0, 0.2, vec3(0.5, 0.5, 0.5)),
+  Material(0, 0.2, vec3(0.0, 1.0, 0.0)),
+  Material(0, 0.2, vec3(1.0, 0.0, 0.0)),
+  Material(0, 0.2, vec3(0.5, 0.5, 0.5))
 );
 
 // Sphere
@@ -154,7 +154,6 @@ Ray genRay(vec2 rng) {
 
   vec2 xy = 2.0*gl_FragCoord.xy/resolution - vec2(1.0);
 
-  // TODO: Antialiasing by subsampling pixel
   ray.origin = vec3(0, 0, 15);
   ray.dir = normalize(vec3(xy + rng.x*dFdx(xy) + rng.y*dFdy(xy), 15-focalDistance) - ray.origin);
 
@@ -356,6 +355,7 @@ vec3 rayTrace(Ray ray) {
   vec3 normal;
   vec3 contrib = vec3(0);
   vec3 tp = vec3(1);
+  vec3 pos = ray.origin;
 
   #ifdef DEBUG_LOCATION
   if (intersect(ray, false, t, mat, normal)) {
@@ -386,8 +386,10 @@ vec3 rayTrace(Ray ray) {
     {
       float lightPdf = sampleLightPdf(lightRect);
       vec3 pos = sampleLight(lightRect, getRandom());
-      vec3 V = -ray.dir;
-      vec3 L = normalize(pos - ray.origin);
+      vec3 newPos = ray.origin+t*ray.dir;
+      vec3 L = normalize(pos - newPos);
+      float dist = distance(pos, newPos);
+      dist = dist*dist;
 
       float tTmp;
       Material tMat;
@@ -408,11 +410,11 @@ vec3 rayTrace(Ray ray) {
         float brdfPdf = sampleNdfPdf(V, H, normal, d);
         #endif
         
-        float lightPdfW = pdfA2W(lightPdf, dot(L, L), dot(-L, tNormal));
+        float lightPdfW = pdfA2W(lightPdf, dist, dot(-L, tNormal));
 
         float misW = lightPdfW / (lightPdfW + brdfPdf);
 
-        contrib += misW * mat.color * tp * brdf / lightPdfW;
+        contrib += misW * tMat.color * tp * brdf / lightPdfW;
       }
     }
     #endif
@@ -473,7 +475,7 @@ vec3 rayTrace(Ray ray) {
 
 void main() {
   seed = seedInit;
-  flatIdx = int(dot(gl_FragCoord.xy, vec2(1, pow(2, 10))));
+  flatIdx = int(dot(gl_FragCoord.xy, vec2(1, 4096)));
 
   // Generate sample
   Ray ray = genRay(getRandom());
@@ -483,5 +485,5 @@ void main() {
   vec3 prev = texture(prevFrame, gl_FragCoord.xy / resolution.xy).rgb;
 
   // Mix it to produce new frame
-  fragColor = vec4((prev*samples + op) / float(samples+1), 1);
+  fragColor = vec4(mix(op, prev, acc), 1.0);
 }

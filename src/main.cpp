@@ -91,41 +91,41 @@ int main()
     samples += 1;
 
     while (!glfwWindowShouldClose(window)) {
-        // input
-        // -----
-        processInput(window);
+      // input
+      // -----
+      processInput(window);
 
-        // Render to fb2
-        glBindFramebuffer(GL_FRAMEBUFFER, fb2);
-        render(shader, vertices, VAO, sizeof(vertices), fbTexture1, samples);
-        samples += 1;
+      // Render to fb2
+      glBindFramebuffer(GL_FRAMEBUFFER, fb2);
+      render(shader, vertices, VAO, sizeof(vertices), fbTexture1, samples);
+      samples += 1;
 
-        // Render to fb1
-        glBindFramebuffer(GL_FRAMEBUFFER, fb1);
-        render(shader, vertices, VAO, sizeof(vertices), fbTexture2, samples);
-        samples += 1;
+      // Render to fb1
+      glBindFramebuffer(GL_FRAMEBUFFER, fb1);
+      render(shader, vertices, VAO, sizeof(vertices), fbTexture2, samples);
+      samples += 1;
 
-        // Render to screen
-        glBindFramebuffer(GL_FRAMEBUFFER, 0);
-        glClearColor(0.2f, 0.3f, 0.3f, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT);
+      // Render to screen
+      glBindFramebuffer(GL_FRAMEBUFFER, 0);
+      glClearColor(0.2f, 0.3f, 0.3f, 1.0f);
+      glClear(GL_COLOR_BUFFER_BIT);
 
-        dispShader.use();
-        unsigned int ID = dispShader.ID;
+      dispShader.use();
+      unsigned int ID = dispShader.ID;
 
-        // Render from fb2 texture
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, fbTexture2);
-        dispShader.setFloat("exposure", 2.2);
-        dispShader.setInt("screenTexture", 0);
-        glUniform2f(glGetUniformLocation(ID, "resolution"), SCR_SIZE, SCR_SIZE);
-        glBindVertexArray(VAO);
-        glDrawArrays(GL_TRIANGLES, 0, sizeof(vertices) / 3);
+      // Render from fb2 texture
+      glActiveTexture(GL_TEXTURE0);
+      glBindTexture(GL_TEXTURE_2D, fbTexture2);
+      dispShader.setFloat("exposure", 2.2);
+      dispShader.setInt("screenTexture", 0);
+      glUniform2f(glGetUniformLocation(ID, "resolution"), SCR_SIZE, SCR_SIZE);
+      glBindVertexArray(VAO);
+      glDrawArrays(GL_TRIANGLES, 0, sizeof(vertices) / 3);
 
-        // glfw: swap buffers and poll IO events (keys pressed/released, mouse moved etc.)
-        // -------------------------------------------------------------------------------
-        glfwSwapBuffers(window);
-        glfwPollEvents();
+      // glfw: swap buffers and poll IO events (keys pressed/released, mouse moved etc.)
+      // -------------------------------------------------------------------------------
+      glfwSwapBuffers(window);
+      glfwPollEvents();
     }
 
     // Deallocate all resources once they've outlived their purpose
@@ -135,6 +135,8 @@ int main()
     glDeleteFramebuffers(1, &fb2);
     glDeleteTextures(1, &fbTexture1);
     glDeleteTextures(1, &fbTexture2);
+
+    std::cout << "Total samples: " << samples;
 
     // glfw: terminate, clearing all previously allocated GLFW resources.
     // ------------------------------------------------------------------
@@ -173,6 +175,7 @@ void render(
   glActiveTexture(GL_TEXTURE0);
   glBindTexture(GL_TEXTURE_2D, texture);
   shader.setInt("prevFrame", 0);
+  shader.setFloat("acc", float(samples) / float(samples+1));
 
   shader.setInt("samples", samples);
   shader.setInt("numBounces", 8);
