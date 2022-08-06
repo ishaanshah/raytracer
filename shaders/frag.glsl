@@ -1,8 +1,10 @@
 #version 330
 
+// #define DEBUG_COLOR
 // #define DEBUG_LOCATION
 // #define DEBUG_NORMALS
 // #define USE_NEE
+#define USE_VNDF
 
 out vec4 fragColor;
 
@@ -44,7 +46,9 @@ struct Cuboid {
 };
 
 struct Rectangle {
-  vec4 plane;
+  // normal = cross(dirx, diry)
+  // d = dot(normal, center)
+  vec4 plane; // vec4(normal, d)
   vec3 center;
   vec3 dirX;
   vec3 dirY;
@@ -83,7 +87,7 @@ Material[5] wallsMat = Material[5](
 
 // Sphere
 Sphere sphere = Sphere(vec3(1.5, -3.5, 3), 1.5);
-Material sphereMat = Material(1, 0, vec3(0.8, 1.0, 0.8));
+Material sphereMat = Material(1, 1.0, vec3(1.0, 1.0, 1.0));
 
 // Cuboid
 Cuboid cuboid = Cuboid(vec3(2), vec3(-1.5, -4, 1));
@@ -115,6 +119,10 @@ void encryptTea(inout uvec2 arg) {
 	arg[1] = v1;
 }
 
+float clampDot(vec3 a, vec3 b, bool zero) {
+  return max(dot(a, b), zero ? 0 : eps);
+}
+
 vec2 getRandom() {
   uvec2 arg = uvec2(flatIdx, seed++);
   encryptTea(arg);
@@ -138,14 +146,14 @@ mat3 constructONBFrisvad(vec3 normal) {
 }
 
 // Camera is placed at (0, 0, 0) looking at (0, 0, -1)
-Ray genRay() {
+Ray genRay(vec2 rng) {
   Ray ray;
 
   vec2 xy = 2.0*gl_FragCoord.xy/resolution - vec2(1.0);
 
   // TODO: Antialiasing by subsampling pixel
   ray.origin = vec3(0, 0, 15);
-  ray.dir = normalize(vec3(xy, 15-focalDistance) - ray.origin);
+  ray.dir = normalize(vec3(xy + rng.x*dFdx(xy) + rng.y*dFdy(xy), 15-focalDistance) - ray.origin);
 
   return ray;
 }
@@ -196,7 +204,7 @@ bool intersectSphere(Ray ray, Sphere sphere, out float t, out vec3 normal) {
 bool intersect(Ray ray, bool shadow, out float t, out Material mat, out vec3 normal) {
   bool intersect = false;
   t = inf;
-  float tmpT = 0;
+  float tmpT;
   vec3 tmpNorm;
 
   if (intersectSphere(ray, sphere, tmpT, tmpNorm)) {
@@ -209,14 +217,12 @@ bool intersect(Ray ray, bool shadow, out float t, out Material mat, out vec3 nor
   }
 
   // Light doesn't cast shadow
-  if (!shadow) {
-    if (intersectRectangle(ray, lightRect, tmpT, tmpNorm)) {
-      intersect = true;
-      if (tmpT < t) {
-        t = tmpT;
-        mat = lightMat;
-        normal = tmpNorm;
-      }
+  if (intersectRectangle(ray, lightRect, tmpT, tmpNorm)) {
+    intersect = true;
+    if (tmpT < t) {
+      t = tmpT;
+      mat = lightMat;
+      normal = tmpNorm;
     }
   }
 
@@ -240,14 +246,14 @@ bool intersect(Ray ray, bool shadow, out float t, out Material mat, out vec3 nor
 // Reflective GGX
 float D(vec3 N, vec3 H, float roughness) {
   float a2 = roughness * roughness;
-  float NdotH = dot(N, H);
+  float NdotH = clampDot(N, H, true);
   float denom = ((NdotH*NdotH)*(a2*a2-1) + 1);
   return a2 / (pi * denom * denom);
 }
 
 float G(vec3 N, vec3 V, vec3 L, float roughness) {
-  float NdotV = max(dot(N, V), 0);
-  float NdotL = max(dot(N, L), 0);
+  float NdotV = clampDot(N, V, false);
+  float NdotL = clampDot(N, L, false);
   float k = roughness * roughness / 2;
   float G_V = NdotV / (NdotV*(1.0 - k) + k);
   float G_L = NdotL / (NdotL*(1.0 - k) + k);
@@ -256,10 +262,11 @@ float G(vec3 N, vec3 V, vec3 L, float roughness) {
 }
 
 vec3 F(vec3 L, vec3 H, vec3 F0) {
-  float LdotH = dot(L, H);
+  float LdotH = clampDot(L, H, true);
   return F0 + (1.0 - F0) * pow(1.0 - LdotH, 5.0);
 }
 
+#ifdef USE_VNDF
 // Adapted from https://jcgt.org/published/0007/04/01/
 vec3 sampleVndf(vec3 V, float roughness, vec2 rng, mat3 onb) {
   V = vec3(dot(V, onb[0]), dot(V, onb[2]), dot(V, onb[1]));
@@ -288,23 +295,47 @@ vec3 sampleVndf(vec3 V, float roughness, vec2 rng, mat3 onb) {
 }
 
 float sampleVndfPdf(vec3 V, vec3 H, float D) {
-  float VdotH = dot(V, H);
+  float VdotH = clampDot(V, H, false);
   return VdotH > 0 ? D / (4 * VdotH) : 0;
 }
 
+#else
+
+vec3 sampleNdf(float roughness, vec2 rng, mat3 onb) {
+	// GGX NDF sampling
+	float a2 = roughness * roughness;
+	float cosThetaH = sqrt(max(0.0, (1.0 - rng.x) / ((a2 - 1.0) * rng.x + 1.0)));
+	float sinThetaH = sqrt(max(0.0, 1.0 - cosThetaH * cosThetaH));
+	float phiH = rng.y * pi * 2.0;
+
+	// Get our GGX NDF sample (i.e., the half vector)
+	vec3 H = vec3(sinThetaH * cos(phiH), cosThetaH, sinThetaH * sin(phiH));
+  return normalize(onb * H);
+}
+
+float sampleNdfPdf(vec3 L, vec3 H, vec3 N, float D) {
+  return D * clampDot(N, H, true) / (4 * clampDot(H, L, false));
+}
+#endif
+
 // Light sampling
-vec3 sampleLight(Rectangle light, out float pdf, vec2 rng) {
-  pdf = 1 / (light.lenX * light.lenY);
-  float x = (rng.x - 0.5) * light.lenX + light.center.x;
-  float y = (rng.y - 0.5) * light.lenY + light.center.y;
-  return vec3(x, y, light.center.z);
+vec3 sampleLight(Rectangle light, vec2 rng) {
+  float x = (rng.x - 0.5) * light.lenX;
+  float y = (rng.y - 0.5) * light.lenY;
+  vec3 pos = (light.dirX * x + light.dirY * y) + light.center;
+  return pos;
+}
+
+float sampleLightPdf(Rectangle light) {
+  return 1 / (light.lenX * light.lenY); 
 }
 
 // Convert from area measure to angle measure
 float pdfA2W(float pdf, float dist2, float cos_theta) {
     float abs_cos_theta = abs(cos_theta);
-    if(abs_cos_theta < 1e-8)
-        return 0.0;
+    if(abs_cos_theta < 1e-8) {
+      return 0.0;
+    }
 
     return pdf * dist2 / abs_cos_theta;
 }
@@ -351,24 +382,30 @@ vec3 rayTrace(Ray ray) {
     // Next event estimation
     #ifdef USE_NEE
     {
-      float lightPdf;
-      vec3 pos = sampleLight(lightRect, lightPdf, getRandom());
+      float lightPdf = sampleLightPdf(lightRect);
+      vec3 pos = sampleLight(lightRect, getRandom());
       vec3 V = -ray.dir;
       vec3 L = normalize(pos - ray.origin);
 
       float tTmp;
       Material tMat;
       vec3 tNormal;
-      bool hit = intersect(Ray(ray.origin, L), true, tTmp, tMat, tNormal); 
-      if (hit && mat.type == 2) {
+      bool hit = intersect(Ray(ray.origin + eps*L, L), true, tTmp, tMat, tNormal); 
+      if (hit && tMat.type == 2) {
         vec3 H = normalize(V + L);
 
         float d = D(normal, H, mat.roughness);
         float g = G(normal, V, L, mat.roughness);
         vec3 f = F(L, H, mat.color);
         vec3 brdf =  d * g * f;
-        brdf = brdf / (4 * max(dot(normal, H), eps) * max(dot(normal, L), eps));
+        brdf = brdf / (4 * clampDot(normal, H, false) * clampDot(normal, L, false));
+
+        #ifdef USE_VNDF
         float brdfPdf = sampleVndfPdf(V, H, d);
+        #else
+        float brdfPdf = sampleNdfPdf(V, H, normal, d);
+        #endif
+        
         float lightPdfW = pdfA2W(lightPdf, dot(L, L), dot(-L, tNormal));
 
         float misW = lightPdfW / (lightPdfW + brdfPdf);
@@ -380,9 +417,14 @@ vec3 rayTrace(Ray ray) {
     {
       Material nextMat;
       vec3 nextNormal;
+
+      #ifdef USE_VNDF
       vec3 H = sampleVndf(V, mat.roughness, getRandom(), onb);
+      #else
+      vec3 H = sampleNdf(mat.roughness, getRandom(), onb);
+      #endif
+
       vec3 L = normalize(reflect(ray.dir, H));
-      return H;
 
       // New ray
       ray = Ray(ray.origin + t*ray.dir + L*eps, L);
@@ -396,13 +438,19 @@ vec3 rayTrace(Ray ray) {
       float g = G(normal, V, L, mat.roughness);
       vec3 f = F(L, H, mat.color);
       vec3 brdf =  d * g * f;
-      brdf = brdf / (4 * max(dot(normal, H), eps) * max(dot(normal, L), eps));
-      float brdfPdf = sampleVndfPdf(V, H, d);
+      brdf = brdf / (4 * clampDot(normal, H, false) * clampDot(normal, L, false));
 
-      if (mat.type == 2) {
+      #ifdef USE_VNDF
+      float brdfPdf = sampleVndfPdf(V, H, d);
+      #else
+      float brdfPdf = sampleNdfPdf(L, H, normal, d);
+      #endif
+
+      if (nextMat.type == 2) {
+        return brdf / brdfPdf;
         #ifdef USE_NEE
-        float lightPdf;
-        sampleLight(lightRect, lightPdf, getRandom());
+        float lightPdf = sampleLightPdf(lightRect);
+        sampleLight(lightRect, getRandom());
         float lightPdfW = pdfA2W(lightPdf, dot(L, L), dot(-L, nextNormal));
         float misW = brdfPdf / (lightPdfW + brdfPdf);
         #else
@@ -413,7 +461,7 @@ vec3 rayTrace(Ray ray) {
         break;
       }
 
-      tp *= dot(normal, L) * brdf / brdfPdf;
+      tp *= clampDot(normal, L, true) * brdf / brdfPdf;
       mat = nextMat;
       normal = nextNormal;
     }
@@ -423,13 +471,17 @@ vec3 rayTrace(Ray ray) {
 }
 
 void main() {
-  flatIdx = int(gl_FragCoord.x * resolution.x + gl_FragCoord.y * resolution.y);
-  Ray ray = genRay();
+  flatIdx = int(dot(gl_FragCoord.xy, vec2(1, 4096)));
 
   vec3 op = vec3(0);
   for (int i = 0; i < samples; i += 1) {
+    Ray ray = genRay(getRandom());
     op += rayTrace(ray);
   }
 
+  #ifdef DEBUG_COLOR
+  fragColor = vec4(op / samples, 1.0);
+  #else
   fragColor = vec4(pow(exposure * op / samples, vec3(1.0 / 2.2)), 1.0);
+  #endif
 }
