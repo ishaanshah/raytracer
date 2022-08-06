@@ -1,6 +1,5 @@
 #version 330
 
-// #define DEBUG_COLOR
 // #define DEBUG_LOCATION
 // #define DEBUG_NORMALS
 // #define USE_NEE
@@ -8,10 +7,14 @@
 
 out vec4 fragColor;
 
-// Render settings
+// Previous frame
+uniform sampler2D prevFrame; 
 uniform int samples;
+
+// Render settings
 uniform int numBounces;
 uniform float time;
+uniform int seedInit;
 
 // Light properties
 uniform float intensity;
@@ -19,14 +22,13 @@ uniform float intensity;
 // Camera properties
 uniform vec2  resolution;
 uniform float focalDistance;
-uniform float exposure;
 
 // Constants
 const float pi = 3.14159265;
 const float inf = 99999999.0;
 const float eps = 1e-6;
 
-int seed = int(time);
+int seed = 0;
 int flatIdx = 0;
 
 // Primitives
@@ -78,11 +80,11 @@ vec4[5] walls = vec4[5](
   vec4(0, 0, 1, 5)
 );
 Material[5] wallsMat = Material[5](
-  Material(0, 1, vec3(0.5, 0.5, 0.5)),
-  Material(0, 1, vec3(0.5, 0.5, 0.5)),
-  Material(0, 1, vec3(0.0, 1.0, 0.0)),
-  Material(0, 1, vec3(1.0, 0.0, 0.0)),
-  Material(0, 1, vec3(0.5, 0.5, 0.5))
+  Material(0, 0.8, vec3(0.5, 0.5, 0.5)),
+  Material(0, 0.8, vec3(0.5, 0.5, 0.5)),
+  Material(0, 0.8, vec3(0.0, 1.0, 0.0)),
+  Material(0, 0.8, vec3(1.0, 0.0, 0.0)),
+  Material(0, 0.8, vec3(0.5, 0.5, 0.5))
 );
 
 // Sphere
@@ -99,9 +101,10 @@ Rectangle lightRect = Rectangle(
   vec3(0, 5-eps, 0),
   vec3(1, 0, 0),
   vec3(0, 0, 1),
+  // 100, 100
   5, 5
 );
-Material lightMat = Material(2, 0, vec3(5));
+Material lightMat = Material(2, 0, vec3(3));
 
 // Random number generator
 void encryptTea(inout uvec2 arg) {
@@ -207,16 +210,15 @@ bool intersect(Ray ray, bool shadow, out float t, out Material mat, out vec3 nor
   float tmpT;
   vec3 tmpNorm;
 
-  if (intersectSphere(ray, sphere, tmpT, tmpNorm)) {
-    intersect = true;
-    if (tmpT < t) {
-      t = tmpT;
-      mat = sphereMat;
-      normal = tmpNorm;
-    }
-  }
+  // if (intersectSphere(ray, sphere, tmpT, tmpNorm)) {
+  //   intersect = true;
+  //   if (tmpT < t) {
+  //     t = tmpT;
+  //     mat = sphereMat;
+  //     normal = tmpNorm;
+  //   }
+  // }
 
-  // Light doesn't cast shadow
   if (intersectRectangle(ray, lightRect, tmpT, tmpNorm)) {
     intersect = true;
     if (tmpT < t) {
@@ -447,7 +449,6 @@ vec3 rayTrace(Ray ray) {
       #endif
 
       if (nextMat.type == 2) {
-        return brdf / brdfPdf;
         #ifdef USE_NEE
         float lightPdf = sampleLightPdf(lightRect);
         sampleLight(lightRect, getRandom());
@@ -457,7 +458,7 @@ vec3 rayTrace(Ray ray) {
         float misW = 1;
         #endif
 
-        contrib += misW * mat.color * tp * brdf / brdfPdf;
+        contrib += misW * nextMat.color * tp * brdf / brdfPdf;
         break;
       }
 
@@ -471,17 +472,16 @@ vec3 rayTrace(Ray ray) {
 }
 
 void main() {
-  flatIdx = int(dot(gl_FragCoord.xy, vec2(1, 4096)));
+  seed = seedInit;
+  flatIdx = int(dot(gl_FragCoord.xy, vec2(1, pow(2, 10))));
 
-  vec3 op = vec3(0);
-  for (int i = 0; i < samples; i += 1) {
-    Ray ray = genRay(getRandom());
-    op += rayTrace(ray);
-  }
+  // Generate sample
+  Ray ray = genRay(getRandom());
+  vec3 op = rayTrace(ray);
 
-  #ifdef DEBUG_COLOR
-  fragColor = vec4(op / samples, 1.0);
-  #else
-  fragColor = vec4(pow(exposure * op / samples, vec3(1.0 / 2.2)), 1.0);
-  #endif
+  // Get previous data
+  vec3 prev = texture(prevFrame, gl_FragCoord.xy / resolution.xy).rgb;
+
+  // Mix it to produce new frame
+  fragColor = vec4((prev*samples + op) / float(samples+1), 1);
 }
