@@ -1,6 +1,10 @@
+// #define DEBUG_PROG
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 #include <iostream>
+#include <vector>
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include <stb_image_write.h>
 
 #include "../include/shader.hpp"
 
@@ -14,9 +18,11 @@ void render(
   unsigned int samples
 );
 unsigned int createFramebuffer(unsigned int *texture);
+void saveImage(char* filepath, GLFWwindow* w);
 
 // settings
 const unsigned int SCR_SIZE = 720;
+const unsigned int SAMPLES = 500;
 
 int main()
 {
@@ -53,7 +59,12 @@ int main()
     // Build and compile our shader zprogram
     // Note: Paths to shader files should be relative to location of executable
     Shader shader("../shaders/vert.glsl", "../shaders/frag.glsl");
+    #ifdef DEBUG_PROG
+    Shader diffShader("../shaders/vert.glsl", "../shaders/diff.glsl");
+    #else
     Shader dispShader("../shaders/vert.glsl", "../shaders/disp.glsl");
+    #endif
+
 
     float vertices[] = {
       -1, -1,
@@ -85,12 +96,15 @@ int main()
 
     unsigned int samples = 0;
 
+    // Store start time
+    double t0 = glfwGetTime();
+
     // Render first pass on fb1
     glBindFramebuffer(GL_FRAMEBUFFER, fb1);
     render(shader, vertices, VAO, sizeof(vertices), fbTexture1, samples);
     samples += 1;
 
-    while (!glfwWindowShouldClose(window)) {
+    while (!glfwWindowShouldClose(window) && samples < SAMPLES) {
       // input
       // -----
       processInput(window);
@@ -110,6 +124,18 @@ int main()
       glClearColor(0.2f, 0.3f, 0.3f, 1.0f);
       glClear(GL_COLOR_BUFFER_BIT);
 
+      #ifdef DEBUG_PROG
+      diffShader.use();
+      unsigned int ID = diffShader.ID;
+
+      // Render from fb2 - fb1
+      glActiveTexture(GL_TEXTURE0);
+      glBindTexture(GL_TEXTURE_2D, fbTexture1);
+      diffShader.setInt("fb1", 0);
+      glActiveTexture(GL_TEXTURE1);
+      glBindTexture(GL_TEXTURE_2D, fbTexture2);
+      diffShader.setInt("fb2", 0);
+      #else
       dispShader.use();
       unsigned int ID = dispShader.ID;
 
@@ -118,6 +144,8 @@ int main()
       glBindTexture(GL_TEXTURE_2D, fbTexture2);
       dispShader.setFloat("exposure", 2.2);
       dispShader.setInt("screenTexture", 0);
+      #endif
+
       glUniform2f(glGetUniformLocation(ID, "resolution"), SCR_SIZE, SCR_SIZE);
       glBindVertexArray(VAO);
       glDrawArrays(GL_TRIANGLES, 0, sizeof(vertices) / 3);
@@ -128,6 +156,13 @@ int main()
       glfwPollEvents();
     }
 
+    // Write to file
+    std::cout << "Output image written to './out.png'" << std::endl;
+    saveImage((char *)"./out.png", window);
+
+    std::cout << "Total samples: " << samples << std::endl;
+    std::cout << "Time taken: " << int(glfwGetTime() - t0) << "s" << std::endl;
+
     // Deallocate all resources once they've outlived their purpose
     glDeleteVertexArrays(1, &VAO);
     glDeleteBuffers(1, &VBO);
@@ -135,8 +170,6 @@ int main()
     glDeleteFramebuffers(1, &fb2);
     glDeleteTextures(1, &fbTexture1);
     glDeleteTextures(1, &fbTexture2);
-
-    std::cout << "Total samples: " << samples;
 
     // glfw: terminate, clearing all previously allocated GLFW resources.
     // ------------------------------------------------------------------
@@ -215,4 +248,19 @@ unsigned int createFramebuffer(unsigned int *texture) {
   }
 
   return fb;
+}
+
+void saveImage(char* filepath, GLFWwindow* w) {
+  int width, height;
+  glfwGetFramebufferSize(w, &width, &height);
+  GLsizei nrChannels = 3;
+  GLsizei stride = nrChannels * width;
+  stride += (stride % 4) ? (4 - stride % 4) : 0;
+  GLsizei bufferSize = stride * height;
+  std::vector<char> buffer(bufferSize);
+  glPixelStorei(GL_PACK_ALIGNMENT, 4);
+  glReadBuffer(GL_FRONT);
+  glReadPixels(0, 0, width, height, GL_RGB, GL_UNSIGNED_BYTE, buffer.data());
+  stbi_flip_vertically_on_write(true);
+  stbi_write_png(filepath, width, height, nrChannels, buffer.data(), stride);
 }

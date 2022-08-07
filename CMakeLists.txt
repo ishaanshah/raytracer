@@ -33,6 +33,11 @@ target_include_directories("glad" PRIVATE "${GLAD_DIR}/include")
 target_include_directories(${PROJECT_NAME} PRIVATE "${GLAD_DIR}/include")
 target_link_libraries(${PROJECT_NAME} "glad" "${CMAKE_DL_LIBS}")
 
+#STB
+set(STB_DIR "${LIB_DIR}/stb")
+include_directories(${STB_DIR})
+link_directories(${STB_DIR})
+
 # ImGui
 # file(GLOB IMGUI_SOURCES ${LIB_DIR}/imgui/*.cpp)
 # add_library("imgui" STATIC "${IMGUI_SOURCES}" ${LIB_DIR}/imgui/imgui_impl_glfw.cpp)
