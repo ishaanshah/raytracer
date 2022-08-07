@@ -1,6 +1,6 @@
 // #define DEBUG_PROG
-#include <glad/glad.h>
 #include <GLFW/glfw3.h>
+#include <glad/glad.h>
 #include <iostream>
 #include <vector>
 #define STB_IMAGE_WRITE_IMPLEMENTATION
@@ -9,191 +9,183 @@
 #include "../include/shader.hpp"
 
 void processInput(GLFWwindow *window);
-void render(
-  Shader &shader,
-  float vertices[],
-  unsigned int VAO,
-  unsigned int vertLen,
-  unsigned int texture,
-  unsigned int samples
-);
+void render(Shader &shader, float vertices[], unsigned int VAO,
+            unsigned int vertLen, unsigned int texture, unsigned int samples);
 unsigned int createFramebuffer(unsigned int *texture);
-void saveImage(char* filepath, GLFWwindow* w);
+void saveImage(char *filepath, GLFWwindow *w);
 
 // settings
-const unsigned int SCR_SIZE = 720;
-const unsigned int SAMPLES = 500;
+unsigned int SCR_SIZE = 0;
+unsigned int SAMPLES = 0;
+char *PATH = NULL;
 
-int main()
-{
-    // glfw: initialize and configure
-    // ------------------------------
-    glfwInit();
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
-    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+int main(int argc, char *argv[]) {
+  // Validate command line arguments
+  if (argc != 4) {
+    std::cout << "USAGE::raytracer <NUM_SAMPLES> <IMAGE_SIZE> <IMAGE_PATH>"
+              << std::endl;
+    return 1;
+  }
+  SAMPLES = atoi(argv[1]);
+  SCR_SIZE = atoi(argv[2]);
+  PATH = argv[3];
 
-    srand(time(NULL));
+  // glfw: initialize and configure
+  // ------------------------------
+  glfwInit();
+  glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+  glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+  glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+
+  srand(time(NULL));
 #ifdef __APPLE__
-    glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
+  glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
 #endif
-    // glfw window creation
-    // --------------------
-    GLFWwindow* window = glfwCreateWindow(SCR_SIZE, SCR_SIZE, "Ray Tracer", NULL, NULL);
-    if (window == NULL)
-    {
-        std::cout << "Failed to create GLFW window" << std::endl;
-        glfwTerminate();
-        return -1;
-    }
-    glfwMakeContextCurrent(window);
+  // glfw window creation
+  // --------------------
+  GLFWwindow *window =
+      glfwCreateWindow(SCR_SIZE, SCR_SIZE, "Ray Tracer", NULL, NULL);
+  if (window == NULL) {
+    std::cout << "Failed to create GLFW window" << std::endl;
+    glfwTerminate();
+    return -1;
+  }
+  glfwMakeContextCurrent(window);
 
-    // glad: load all OpenGL function pointers
-    // ---------------------------------------
-    if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress))
-    {
-        std::cout << "Failed to initialize GLAD" << std::endl;
-        return -1;
-    }    
-    //
-    // Build and compile our shader zprogram
-    // Note: Paths to shader files should be relative to location of executable
-    Shader shader("../shaders/vert.glsl", "../shaders/frag.glsl");
-    #ifdef DEBUG_PROG
-    Shader diffShader("../shaders/vert.glsl", "../shaders/diff.glsl");
-    #else
-    Shader dispShader("../shaders/vert.glsl", "../shaders/disp.glsl");
-    #endif
+  // glad: load all OpenGL function pointers
+  // ---------------------------------------
+  if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
+    std::cout << "Failed to initialize GLAD" << std::endl;
+    return -1;
+  }
+  //
+  // Build and compile our shader zprogram
+  // Note: Paths to shader files should be relative to location of executable
+  Shader shader("../shaders/vert.glsl", "../shaders/frag.glsl");
+#ifdef DEBUG_PROG
+  Shader diffShader("../shaders/vert.glsl", "../shaders/diff.glsl");
+#else
+  Shader dispShader("../shaders/vert.glsl", "../shaders/disp.glsl");
+#endif
 
+  float vertices[] = {
+      -1, -1, -1, +1, +1, +1, -1, -1, +1, +1, +1, -1,
+  };
 
-    float vertices[] = {
-      -1, -1,
-      -1, +1,
-      +1, +1,
-      -1, -1,
-      +1, +1,
-      +1, -1,
-    };
+  unsigned int VBO, VAO;
+  glGenVertexArrays(1, &VAO);
+  glGenBuffers(1, &VBO);
 
-    unsigned int VBO, VAO;
-    glGenVertexArrays(1, &VAO);
-    glGenBuffers(1, &VBO);
+  glBindVertexArray(VAO);
 
-    glBindVertexArray(VAO);
+  glBindBuffer(GL_ARRAY_BUFFER, VBO);
+  glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
 
-    glBindBuffer(GL_ARRAY_BUFFER, VBO);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+  // Position attribute
+  glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void *)0);
+  glEnableVertexAttribArray(0);
 
-    // Position attribute
-    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
-    glEnableVertexAttribArray(0);
+  // Create two needed framebuffers
+  unsigned int fbTexture1;
+  unsigned int fb1 = createFramebuffer(&fbTexture1);
+  unsigned int fbTexture2;
+  unsigned int fb2 = createFramebuffer(&fbTexture2);
 
-    // Create two needed framebuffers
-    unsigned int fbTexture1;
-    unsigned int fb1 = createFramebuffer(&fbTexture1);
-    unsigned int fbTexture2;
-    unsigned int fb2 = createFramebuffer(&fbTexture2);
+  unsigned int samples = 0;
 
-    unsigned int samples = 0;
+  // Store start time
+  double t0 = glfwGetTime();
 
-    // Store start time
-    double t0 = glfwGetTime();
+  // Render first pass on fb1
+  glBindFramebuffer(GL_FRAMEBUFFER, fb1);
+  render(shader, vertices, VAO, sizeof(vertices), fbTexture1, samples);
+  samples += 1;
 
-    // Render first pass on fb1
-    glBindFramebuffer(GL_FRAMEBUFFER, fb1);
+  while (!glfwWindowShouldClose(window) && samples <= SAMPLES) {
+    // input
+    // -----
+    processInput(window);
+
+    // Render to fb2
+    glBindFramebuffer(GL_FRAMEBUFFER, fb2);
     render(shader, vertices, VAO, sizeof(vertices), fbTexture1, samples);
     samples += 1;
 
-    while (!glfwWindowShouldClose(window) && samples < SAMPLES) {
-      // input
-      // -----
-      processInput(window);
+    // Render to fb1
+    glBindFramebuffer(GL_FRAMEBUFFER, fb1);
+    render(shader, vertices, VAO, sizeof(vertices), fbTexture2, samples);
+    samples += 1;
 
-      // Render to fb2
-      glBindFramebuffer(GL_FRAMEBUFFER, fb2);
-      render(shader, vertices, VAO, sizeof(vertices), fbTexture1, samples);
-      samples += 1;
+    // Render to screen
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glClearColor(0.2f, 0.3f, 0.3f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
 
-      // Render to fb1
-      glBindFramebuffer(GL_FRAMEBUFFER, fb1);
-      render(shader, vertices, VAO, sizeof(vertices), fbTexture2, samples);
-      samples += 1;
+#ifdef DEBUG_PROG
+    diffShader.use();
+    unsigned int ID = diffShader.ID;
 
-      // Render to screen
-      glBindFramebuffer(GL_FRAMEBUFFER, 0);
-      glClearColor(0.2f, 0.3f, 0.3f, 1.0f);
-      glClear(GL_COLOR_BUFFER_BIT);
+    // Render from fb2 - fb1
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, fbTexture1);
+    diffShader.setInt("fb1", 0);
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, fbTexture2);
+    diffShader.setInt("fb2", 0);
+#else
+    dispShader.use();
+    unsigned int ID = dispShader.ID;
 
-      #ifdef DEBUG_PROG
-      diffShader.use();
-      unsigned int ID = diffShader.ID;
+    // Render from fb2 texture
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, fbTexture2);
+    dispShader.setFloat("exposure", 2.2);
+    dispShader.setInt("screenTexture", 0);
+#endif
 
-      // Render from fb2 - fb1
-      glActiveTexture(GL_TEXTURE0);
-      glBindTexture(GL_TEXTURE_2D, fbTexture1);
-      diffShader.setInt("fb1", 0);
-      glActiveTexture(GL_TEXTURE1);
-      glBindTexture(GL_TEXTURE_2D, fbTexture2);
-      diffShader.setInt("fb2", 0);
-      #else
-      dispShader.use();
-      unsigned int ID = dispShader.ID;
+    glUniform2f(glGetUniformLocation(ID, "resolution"), SCR_SIZE, SCR_SIZE);
+    glBindVertexArray(VAO);
+    glDrawArrays(GL_TRIANGLES, 0, sizeof(vertices) / 3);
 
-      // Render from fb2 texture
-      glActiveTexture(GL_TEXTURE0);
-      glBindTexture(GL_TEXTURE_2D, fbTexture2);
-      dispShader.setFloat("exposure", 2.2);
-      dispShader.setInt("screenTexture", 0);
-      #endif
+    // glfw: swap buffers and poll IO events (keys pressed/released, mouse moved
+    // etc.)
+    // -------------------------------------------------------------------------------
+    glfwSwapBuffers(window);
+    glfwPollEvents();
+  }
 
-      glUniform2f(glGetUniformLocation(ID, "resolution"), SCR_SIZE, SCR_SIZE);
-      glBindVertexArray(VAO);
-      glDrawArrays(GL_TRIANGLES, 0, sizeof(vertices) / 3);
+  // Write to file
+  std::cout << "INFO::Output image written to " << PATH << std::endl;
+  saveImage(PATH, window);
 
-      // glfw: swap buffers and poll IO events (keys pressed/released, mouse moved etc.)
-      // -------------------------------------------------------------------------------
-      glfwSwapBuffers(window);
-      glfwPollEvents();
-    }
+  std::cout << "INFO::Time taken: " << int(glfwGetTime() - t0) << "s"
+            << std::endl;
 
-    // Write to file
-    std::cout << "Output image written to './out.png'" << std::endl;
-    saveImage((char *)"./out.png", window);
+  // Deallocate all resources once they've outlived their purpose
+  glDeleteVertexArrays(1, &VAO);
+  glDeleteBuffers(1, &VBO);
+  glDeleteFramebuffers(1, &fb1);
+  glDeleteFramebuffers(1, &fb2);
+  glDeleteTextures(1, &fbTexture1);
+  glDeleteTextures(1, &fbTexture2);
 
-    std::cout << "Total samples: " << samples << std::endl;
-    std::cout << "Time taken: " << int(glfwGetTime() - t0) << "s" << std::endl;
-
-    // Deallocate all resources once they've outlived their purpose
-    glDeleteVertexArrays(1, &VAO);
-    glDeleteBuffers(1, &VBO);
-    glDeleteFramebuffers(1, &fb1);
-    glDeleteFramebuffers(1, &fb2);
-    glDeleteTextures(1, &fbTexture1);
-    glDeleteTextures(1, &fbTexture2);
-
-    // glfw: terminate, clearing all previously allocated GLFW resources.
-    // ------------------------------------------------------------------
-    glfwTerminate();
-    return 0;
+  // glfw: terminate, clearing all previously allocated GLFW resources.
+  // ------------------------------------------------------------------
+  glfwTerminate();
+  return 0;
 }
 
-// process all input: query GLFW whether relevant keys are pressed/released this frame and react accordingly
+// process all input: query GLFW whether relevant keys are pressed/released this
+// frame and react accordingly
 // ---------------------------------------------------------------------------------------------------------
-void processInput(GLFWwindow *window)
-{
-  if(glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
+void processInput(GLFWwindow *window) {
+  if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
     glfwSetWindowShouldClose(window, true);
   }
 }
 
-void render(
-  Shader &shader,
-  float vertices[],
-  unsigned int VAO,
-  unsigned int vertLen,
-  unsigned int texture,
-  unsigned int samples
-) {
+void render(Shader &shader, float vertices[], unsigned int VAO,
+            unsigned int vertLen, unsigned int texture, unsigned int samples) {
   // render
   // ------
   glClearColor(0.2f, 0.3f, 0.3f, 1.0f);
@@ -208,7 +200,7 @@ void render(
   glActiveTexture(GL_TEXTURE0);
   glBindTexture(GL_TEXTURE_2D, texture);
   shader.setInt("prevFrame", 0);
-  shader.setFloat("acc", float(samples) / float(samples+1));
+  shader.setFloat("acc", float(samples) / float(samples + 1));
 
   shader.setInt("samples", samples);
   shader.setInt("numBounces", 8);
@@ -235,22 +227,25 @@ unsigned int createFramebuffer(unsigned int *texture) {
   // Create a texture to write to
   glGenTextures(1, texture);
   glBindTexture(GL_TEXTURE_2D, *texture);
-  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, SCR_SIZE, SCR_SIZE, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, SCR_SIZE, SCR_SIZE, 0, GL_RGB,
+               GL_UNSIGNED_BYTE, NULL);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
   // Attach texture to framebuffer
-  glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, fb, 0);
+  glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
+                         fb, 0);
 
   // Check if framebuffer is ready to be written to
-  if(glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
-    std::cout << "ERROR::FRAMEBUFFER:: Framebuffer is not complete!" << std::endl;
+  if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+    std::cout << "ERROR::FRAMEBUFFER:: Framebuffer is not complete!"
+              << std::endl;
   }
 
   return fb;
 }
 
-void saveImage(char* filepath, GLFWwindow* w) {
+void saveImage(char *filepath, GLFWwindow *w) {
   int width, height;
   glfwGetFramebufferSize(w, &width, &height);
   GLsizei nrChannels = 3;
