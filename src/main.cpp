@@ -223,6 +223,9 @@ void render(Shader &shader, float vertices[], unsigned int VAO,
   shader.setFloat("focalDistance", 2);
   glUniform2f(glGetUniformLocation(ID, "resolution"), SCR_SIZE, SCR_SIZE);
 
+  // Checkerboard
+  shader.setFloat("checkerboard", 2);
+
   glBindVertexArray(VAO);
   glDrawArrays(GL_TRIANGLES, 0, vertLen / 3);
 }

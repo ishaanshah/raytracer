@@ -1,6 +1,6 @@
 #version 330
 
-// #define DEBUG_LOCATION
+// #define DEBUG_ALBEDO
 // #define DEBUG_NORMALS
 // #define USE_NEE
 #define USE_VNDF
@@ -22,6 +22,10 @@ uniform float intensity;
 // Camera properties
 uniform vec2 resolution;
 uniform float focalDistance;
+
+// Checkerboard pattern
+// Set to -ve to disable
+uniform float checkerboard;
 
 // Constants
 const float pi = 3.14159265;
@@ -68,7 +72,7 @@ struct Triangle {
 };
 
 struct Material {
-  int type;  // 0 for reflective, 1 for refractive, 2 for emmisive
+  int type;  // 0 for reflective, 1 for refractive, 2 for emmisive, 3 for checkerboard
   float roughness;
   vec3 color;
 };
@@ -76,19 +80,22 @@ struct Material {
 // Walls
 vec4[5] walls = vec4[5](vec4(0, 1, 0, 5), vec4(0, -1, 0, 5), vec4(1, 0, 0, 5),
                         vec4(-1, 0, 0, 5), vec4(0, 0, 1, 5));
-Material[5] wallsMat = Material[5](Material(0, 0.2, vec3(0.5, 0.5, 0.5)),
-                                   Material(0, 0.2, vec3(0.5, 0.5, 0.5)),
-                                   Material(0, 1.0, vec3(0.0, 1.0, 0.0)),
+Material[5] wallsMat = Material[5](Material(
+                                    checkerboard < 0 ? 0 : 3,
+                                    0.05, vec3(0.5, 0.5, 0.5)
+                                   ),
+                                   Material(0, 0.9, vec3(0.5, 0.5, 0.5)),
+                                   Material(0, 0.9, vec3(0.0, 1.0, 0.0)),
                                    Material(0, 0.01, vec3(1.0, 0.0, 0.0)),
-                                   Material(0, 1.0, vec3(0.5, 0.5, 0.5)));
+                                   Material(0, 0.9, vec3(0.5, 0.5, 0.5)));
 
 // Sphere
 Sphere sphere = Sphere(vec3(1.5, -3.5, -1), 1.5);
 Material sphereMat = Material(1, 1.0, vec3(0.0, 0.0, 1.0));
 
 // Cuboid
-Cuboid cuboid = Cuboid(vec3(-4, -5, 0), vec3(-2, -2, 2));
-Material cuboidMat = Material(0, 0.3, vec3(0.2, 0.6, 1.0));
+Cuboid cuboid = Cuboid(vec3(-4, -5, 1), vec3(-2, -2, 3));
+Material cuboidMat = Material(0, 0.3, vec3(0.2, 0.3, 1.0));
 
 // Light
 Rectangle lightRect = Rectangle(vec4(0, -1, 0, 5 - eps), vec3(0, 5 - eps, 0),
@@ -238,14 +245,14 @@ bool intersect(Ray ray, bool shadow, out float t, out Material mat,
   float tmpT;
   vec3 tmpNorm;
 
-  // if (intersectSphere(ray, sphere, tmpT, tmpNorm)) {
-  //   intersect = true;
-  //   if (tmpT < t) {
-  //     t = tmpT;
-  //     mat = sphereMat;
-  //     normal = tmpNorm;
-  //   }
-  // }
+  if (intersectSphere(ray, sphere, tmpT, tmpNorm)) {
+    intersect = true;
+    if (tmpT < t) {
+      t = tmpT;
+      mat = sphereMat;
+      normal = tmpNorm;
+    }
+  }
 
   if (intersectCuboid(ray, cuboid, tmpT, tmpNorm)) {
     intersect = true;
@@ -378,6 +385,31 @@ float pdfA2W(float pdf, float dist2, float cos_theta) {
   return pdf * dist2 / abs_cos_theta;
 }
 
+vec3 evalBSDF(Material mat, vec3 N, vec3 H, vec3 V, vec3 L, vec3 pos, out float pdf) {
+  float d = D(N, H, mat.roughness);
+  float g = G(N, V, L, mat.roughness);
+  vec3 color = mat.color;
+  // Check if checkerboard material
+  if (mat.type == 3) {
+    float fac = 2 * pi / checkerboard;
+    if (sin(fac * pos.x)*sin(fac * pos.y)*sin(fac * pos.z) < 0) {
+      color = vec3(0.1, 0.1, 0.1);
+    }
+  }
+  vec3 f = F(L, H, color);
+  vec3 brdf = d * g * f;
+  brdf = brdf /
+         (4 * clampDot(N, H, false) * clampDot(N, L, false));
+
+#ifdef USE_VNDF
+  pdf = sampleVndfPdf(V, H, d);
+#else
+  pdf = sampleNdfPdf(V, H, N, d);
+#endif
+
+  return brdf;
+}
+
 vec3 rayTrace(Ray ray) {
   Material mat;
   float t;
@@ -427,19 +459,9 @@ vec3 rayTrace(Ray ray) {
           intersect(Ray(ray.origin + eps * L, L), true, tTmp, tMat, tNormal);
       if (hit && tMat.type == 2) {
         vec3 H = normalize(V + L);
-
-        float d = D(normal, H, mat.roughness);
-        float g = G(normal, V, L, mat.roughness);
-        vec3 f = F(L, H, mat.color);
-        vec3 brdf = d * g * f;
-        brdf = brdf /
-               (4 * clampDot(normal, H, false) * clampDot(normal, L, false));
-
-#ifdef USE_VNDF
-        float brdfPdf = sampleVndfPdf(V, H, d);
-#else
-        float brdfPdf = sampleNdfPdf(V, H, normal, d);
-#endif
+        
+        float brdfPdf;
+        vec3 brdf = evalBSDF(mat, normal, H, V, L, ray.origin, brdfPdf);
 
         float lightPdfW = pdfA2W(lightPdf, dist, dot(-L, tNormal));
 
@@ -462,7 +484,7 @@ vec3 rayTrace(Ray ray) {
       vec3 L = normalize(reflect(ray.dir, H));
 
       // New ray
-      vec3 new_pos = ray.origin + t * ray.dir + eps * L;
+      vec3 new_pos = ray.origin + t * ray.dir + eps*L;
       ray = Ray(new_pos, L);
 
       // Didn't hit anything
@@ -471,24 +493,14 @@ vec3 rayTrace(Ray ray) {
       }
 
       // TODO: remove after debuggin sphere code
-      // if (nextMat.type == 1) {
+      // if (mat.type == 1 && nextMat.type == 1) {
       //   return vec3(1);
       // } else {
       //   return vec3(0);
       // }
 
-      float d = D(normal, H, mat.roughness);
-      float g = G(normal, V, L, mat.roughness);
-      vec3 f = F(L, H, mat.color);
-      vec3 brdf = d * g * f;
-      brdf =
-          brdf / (4 * clampDot(normal, H, false) * clampDot(normal, L, false));
-
-#ifdef USE_VNDF
-      float brdfPdf = sampleVndfPdf(V, H, d);
-#else
-      float brdfPdf = sampleNdfPdf(L, H, normal, d);
-#endif
+      float brdfPdf;
+      vec3 brdf = evalBSDF(mat, normal, H, V, L, new_pos, brdfPdf);
 
       if (nextMat.type == 2) {
 #ifdef USE_NEE
