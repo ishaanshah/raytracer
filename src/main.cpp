@@ -1,4 +1,5 @@
 // #define DEBUG_PROG
+// #define DEBUG_SINGLE
 #include <GLFW/glfw3.h>
 #include <glad/glad.h>
 #include <iostream>
@@ -26,7 +27,11 @@ int main(int argc, char *argv[]) {
               << std::endl;
     return 1;
   }
+#ifdef DEBUG_SINGLE
+  SAMPLES = 1e9;
+#else
   SAMPLES = atoi(argv[1]);
+#endif
   SCR_SIZE = atoi(argv[2]);
   PATH = argv[3];
 
@@ -158,7 +163,7 @@ int main(int argc, char *argv[]) {
   std::cout << "INFO::Output image written to " << PATH << std::endl;
   saveImage(PATH, window);
 
-  std::cout << "INFO::Time taken: " << int(glfwGetTime() - t0) << "s"
+  std::cout << "INFO::Time taken: " << glfwGetTime() - t0 << "s"
             << std::endl;
 
   // Deallocate all resources once they've outlived their purpose
@@ -200,7 +205,11 @@ void render(Shader &shader, float vertices[], unsigned int VAO,
   glActiveTexture(GL_TEXTURE0);
   glBindTexture(GL_TEXTURE_2D, texture);
   shader.setInt("prevFrame", 0);
+#ifndef DEBUG_SINGLE
   shader.setFloat("acc", float(samples) / float(samples + 1));
+#else
+  shader.setFloat("acc", 0);
+#endif
 
   shader.setInt("samples", samples);
   shader.setInt("numBounces", 8);

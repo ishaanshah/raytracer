@@ -2,7 +2,7 @@
 
 // #define DEBUG_LOCATION
 // #define DEBUG_NORMALS
-#define USE_NEE
+// #define USE_NEE
 #define USE_VNDF
 
 out vec4 fragColor;
@@ -26,7 +26,7 @@ uniform float focalDistance;
 // Constants
 const float pi = 3.14159265;
 const float inf = 99999999.0;
-const float eps = 1e-6;
+const float eps = 1e-5;
 
 int seed = 0;
 int flatIdx = 0;
@@ -42,9 +42,11 @@ struct Sphere {
   float radius;
 };
 
+// Only support axis aligned for now
+// TODO: Support arbitrary orientation
 struct Cuboid {
-  vec3 size;
-  vec3 center;
+  vec3 minPos;
+  vec3 maxPos;
 };
 
 struct Rectangle {
@@ -76,24 +78,24 @@ vec4[5] walls = vec4[5](vec4(0, 1, 0, 5), vec4(0, -1, 0, 5), vec4(1, 0, 0, 5),
                         vec4(-1, 0, 0, 5), vec4(0, 0, 1, 5));
 Material[5] wallsMat = Material[5](Material(0, 0.2, vec3(0.5, 0.5, 0.5)),
                                    Material(0, 0.2, vec3(0.5, 0.5, 0.5)),
-                                   Material(0, 0.2, vec3(0.0, 1.0, 0.0)),
-                                   Material(0, 0.2, vec3(1.0, 0.0, 0.0)),
-                                   Material(0, 0.2, vec3(0.5, 0.5, 0.5)));
+                                   Material(0, 1.0, vec3(0.0, 1.0, 0.0)),
+                                   Material(0, 0.01, vec3(1.0, 0.0, 0.0)),
+                                   Material(0, 1.0, vec3(0.5, 0.5, 0.5)));
 
 // Sphere
-Sphere sphere = Sphere(vec3(1.5, -3.5, 3), 1.5);
-Material sphereMat = Material(1, 1.0, vec3(1.0, 1.0, 1.0));
+Sphere sphere = Sphere(vec3(1.5, -3.5, -1), 1.5);
+Material sphereMat = Material(1, 1.0, vec3(0.0, 0.0, 1.0));
 
 // Cuboid
-Cuboid cuboid = Cuboid(vec3(2), vec3(-1.5, -4, 1));
-Material cuboidMat = Material(0, 0.5, vec3(0.5, 1.0, 0.0));
+Cuboid cuboid = Cuboid(vec3(-4, -5, 0), vec3(-2, -2, 2));
+Material cuboidMat = Material(0, 0.3, vec3(0.2, 0.6, 1.0));
 
 // Light
 Rectangle lightRect = Rectangle(vec4(0, -1, 0, 5 - eps), vec3(0, 5 - eps, 0),
                                 vec3(1, 0, 0), vec3(0, 0, 1),
-                                // 100, 100
+                                // 100, 100);
                                 5, 5);
-Material lightMat = Material(2, 0, vec3(3));
+Material lightMat = Material(2, 0, vec3(1));
 
 // Random number generator
 void encryptTea(inout uvec2 arg) {
@@ -111,15 +113,24 @@ void encryptTea(inout uvec2 arg) {
   arg[1] = v1;
 }
 
-float clampDot(vec3 a, vec3 b, bool zero) {
-  return max(dot(a, b), zero ? 0 : eps);
-}
-
 vec2 getRandom() {
   uvec2 arg = uvec2(flatIdx, seed++);
   encryptTea(arg);
   return fract(vec2(arg) / vec2(0xffffffffu));
 }
+
+float clampDot(vec3 a, vec3 b, bool zero) {
+  return max(dot(a, b), zero ? 0 : eps);
+}
+
+vec3 rotationY(vec3 v, float a) {
+  vec3 r;
+  r.x = v.x * cos(a) + v.z * sin(a);
+  r.y = v.y;
+  r.z = -v.x * sin(a) + v.z * cos(a);
+  return r;
+}
+
 
 mat3 constructONBFrisvad(vec3 normal) {
   mat3 ret;
@@ -174,8 +185,35 @@ bool intersectRectangle(Ray ray, Rectangle rect, out float t, out vec3 normal) {
 }
 
 bool intersectCuboid(Ray ray, Cuboid cuboid, out float t, out vec3 normal) {
-  // Check cuboid
-  return true;
+  float tMin = 0;
+  float tMax = inf;
+
+	vec3 div = 1.0 / ray.dir;
+	vec3 t1 = (cuboid.minPos - ray.origin) * div;
+	vec3 t2 = (cuboid.maxPos - ray.origin) * div;
+
+	vec3 tMin2 = min(t1, t2);
+	vec3 tMax2 = max(t1, t2);
+
+	tMin = max(max(tMin2.x, tMin2.y), max(tMin2.z, tMin));
+	tMax = min(min(tMax2.x, tMax2.y), min(tMax2.z, tMax));
+  t = tMin;
+
+  vec3 center = (cuboid.minPos + cuboid.maxPos) / 2;
+  normal = ray.origin + t*ray.dir - center;
+
+  vec3 an = abs(normal) / (cuboid.maxPos - cuboid.minPos);
+  if (an.x > an.y && an.x > an.z) {
+    normal = vec3(normal.x > 0 ? 1 : -1, 0, 0);
+  }
+  if (an.y > an.x && an.y > an.z) {
+    normal = vec3(0, normal.y > 0 ? 1: -1, 0);
+  }
+  if (an.z > an.x && an.z > an.y) {
+    normal = vec3(0, 0, normal.z > 0 ? 1 : -1);
+  }
+
+	return tMin < tMax;
 }
 
 bool intersectSphere(Ray ray, Sphere sphere, out float t, out vec3 normal) {
@@ -187,7 +225,7 @@ bool intersectSphere(Ray ray, Sphere sphere, out float t, out vec3 normal) {
     return false;
   }
   disc = sqrt(disc);
-  t = min(-b - disc, -b + disc);
+  t = -b - disc;
   normal = normalize(ray.origin + ray.dir * t - sphere.center);
   return true;
 }
@@ -208,6 +246,15 @@ bool intersect(Ray ray, bool shadow, out float t, out Material mat,
   //     normal = tmpNorm;
   //   }
   // }
+
+  if (intersectCuboid(ray, cuboid, tmpT, tmpNorm)) {
+    intersect = true;
+    if (tmpT < t) {
+      t = tmpT;
+      mat = cuboidMat;
+      normal = tmpNorm;
+    }
+  }
 
   if (intersectRectangle(ray, lightRect, tmpT, tmpNorm)) {
     intersect = true;
@@ -288,7 +335,7 @@ vec3 sampleVndf(vec3 V, float roughness, vec2 rng, mat3 onb) {
 }
 
 float sampleVndfPdf(vec3 V, vec3 H, float D) {
-  float VdotH = clampDot(V, H, false);
+  float VdotH = clampDot(V, H, true);
   return VdotH > 0 ? D / (4 * VdotH) : 0;
 }
 
@@ -329,14 +376,6 @@ float pdfA2W(float pdf, float dist2, float cos_theta) {
   }
 
   return pdf * dist2 / abs_cos_theta;
-}
-
-vec3 rotationY(vec3 v, float a) {
-  vec3 r;
-  r.x = v.x * cos(a) + v.z * sin(a);
-  r.y = v.y;
-  r.z = -v.x * sin(a) + v.z * cos(a);
-  return r;
 }
 
 vec3 rayTrace(Ray ray) {
@@ -423,12 +462,20 @@ vec3 rayTrace(Ray ray) {
       vec3 L = normalize(reflect(ray.dir, H));
 
       // New ray
-      ray = Ray(ray.origin + t * ray.dir + L * eps, L);
+      vec3 new_pos = ray.origin + t * ray.dir + eps * L;
+      ray = Ray(new_pos, L);
 
       // Didn't hit anything
       if (!intersect(ray, false, t, nextMat, nextNormal)) {
         break;
       }
+
+      // TODO: remove after debuggin sphere code
+      // if (nextMat.type == 1) {
+      //   return vec3(1);
+      // } else {
+      //   return vec3(0);
+      // }
 
       float d = D(normal, H, mat.roughness);
       float g = G(normal, V, L, mat.roughness);
@@ -472,7 +519,7 @@ void main() {
 
   // Generate sample
   Ray ray = genRay(getRandom());
-  vec3 op = rayTrace(ray);
+  vec3 op = clamp(rayTrace(ray), vec3(0), vec3(1));
 
   // Get previous data
   vec3 prev = texture(prevFrame, gl_FragCoord.xy / resolution.xy).rgb;
