@@ -65,10 +65,9 @@ struct Rectangle {
 };
 
 struct Triangle {
-  vec3 vert1;
-  vec3 vert2;
-  vec3 vert3;
-  vec3 normal;
+  vec3 v0;
+  vec3 v1;
+  vec3 v2;
 };
 
 struct Material {
@@ -90,12 +89,39 @@ Material[5] wallsMat = Material[5](Material(
                                    Material(0, 0.9, vec3(0.5, 0.5, 0.5)));
 
 // Sphere
-Sphere sphere = Sphere(vec3(1.5, -3.5, -1), 1.5);
+Sphere sphere = Sphere(vec3(2, -3.5, 3), 1.5);
 Material sphereMat = Material(1, 1.0, vec3(0.0, 0.0, 1.0));
 
 // Cuboid
-Cuboid cuboid = Cuboid(vec3(-4, -5, 1), vec3(-2, -2, 3));
+Cuboid cuboid = Cuboid(vec3(-4, -5, 0), vec3(-2, -2, 2));
 Material cuboidMat = Material(0, 0.3, vec3(0.2, 0.3, 1.0));
+
+// Pyramid
+vec3 pyramidCenter = vec3(0.5, -5, -2);
+// TODO: fix non y aligned normal
+vec3 pyramidNorm = vec3(0, 1, 0);
+float pyramidHeight = 4;
+float pyramidLength = 3;
+vec3 pyramidTip = pyramidCenter + pyramidHeight*pyramidNorm;
+vec3 quad0 = vec3(1, 0, 1);
+vec3 quad1 = vec3(1, 0, -1);
+vec3 quad2 = vec3(-1, 0, -1);
+vec3 quad3 = vec3(-1, 0, 1);
+Triangle[4] pyrTris = Triangle[4](
+  Triangle(pyramidTip, pyramidCenter + quad0*pyramidLength/2, pyramidCenter + quad1*pyramidLength/2),
+  Triangle(pyramidTip, pyramidCenter + quad1*pyramidLength/2, pyramidCenter + quad2*pyramidLength/2),
+  Triangle(pyramidTip, pyramidCenter + quad2*pyramidLength/2, pyramidCenter + quad3*pyramidLength/2),
+  Triangle(pyramidTip, pyramidCenter + quad3*pyramidLength/2, pyramidCenter + quad0*pyramidLength/2)
+);
+Rectangle pyrBase = Rectangle(
+  vec4(pyramidNorm, -dot(pyramidNorm, pyramidCenter)),
+  pyramidCenter,
+  vec3(1, 0, 0),
+  vec3(0, 0, 1),
+  pyramidLength,
+  pyramidLength
+);
+Material pyramidMat = Material(1, 1, vec3(1));
 
 // Light
 Rectangle lightRect = Rectangle(vec4(0, -1, 0, 5 - eps), vec3(0, 5 - eps, 0),
@@ -237,6 +263,22 @@ bool intersectSphere(Ray ray, Sphere sphere, out float t, out vec3 normal) {
   return true;
 }
 
+bool intersectTriangle(Ray ray, Triangle tri, out float t, out vec3 normal) {
+    vec3 v1v0 = tri.v1 - tri.v0;
+    vec3 v2v0 = tri.v2 - tri.v0;
+    vec3 rov0 = ray.origin - tri.v0;
+    normal = cross(v1v0, v2v0);
+    vec3 q = cross(rov0, ray.dir);
+    float d = 1.0/dot(ray.dir, normal);
+    float u = d*dot(-q, v2v0);
+    float v = d*dot(q, v1v0);
+    t = d*dot(-normal, rov0);
+    if (u < 0.0 || v < 0.0 || (u+v) > 1.0 ) {
+      return false;
+    }
+    return true;
+}
+
 // TODO: BVH
 bool intersect(Ray ray, bool shadow, out float t, out Material mat,
                out vec3 normal) {
@@ -245,20 +287,40 @@ bool intersect(Ray ray, bool shadow, out float t, out Material mat,
   float tmpT;
   vec3 tmpNorm;
 
-  if (intersectSphere(ray, sphere, tmpT, tmpNorm)) {
-    intersect = true;
-    if (tmpT < t) {
-      t = tmpT;
-      mat = sphereMat;
-      normal = tmpNorm;
-    }
-  }
+  // if (intersectSphere(ray, sphere, tmpT, tmpNorm)) {
+  //   intersect = true;
+  //   if (tmpT < t) {
+  //     t = tmpT;
+  //     mat = sphereMat;
+  //     normal = tmpNorm;
+  //   }
+  // }
 
   if (intersectCuboid(ray, cuboid, tmpT, tmpNorm)) {
     intersect = true;
     if (tmpT < t) {
       t = tmpT;
       mat = cuboidMat;
+      normal = tmpNorm;
+    }
+  }
+
+  // Pyramid
+  for (int i = 0; i < 4; i += 1) {
+    if (intersectTriangle(ray, pyrTris[i], tmpT, tmpNorm)) {
+      intersect = true;
+      if (tmpT < t) {
+        t = tmpT;
+        mat = pyramidMat;
+        normal = tmpNorm;
+      }
+    }
+  }
+  if (intersectRectangle(ray, pyrBase, tmpT, tmpNorm)) {
+    intersect = true;
+    if (tmpT < t) {
+      t = tmpT;
+      mat = pyramidMat;
       normal = tmpNorm;
     }
   }
@@ -418,7 +480,7 @@ vec3 rayTrace(Ray ray) {
   vec3 tp = vec3(1);
   vec3 pos = ray.origin;
 
-#ifdef DEBUG_LOCATION
+#ifdef DEBUG_ALBEDO
   if (intersect(ray, false, t, mat, normal)) {
     return mat.color;
   }
@@ -481,10 +543,12 @@ vec3 rayTrace(Ray ray) {
       vec3 H = sampleNdf(mat.roughness, getRandom(), onb);
 #endif
 
+      return vec3(length(H/2));
       vec3 L = normalize(reflect(ray.dir, H));
 
       // New ray
       vec3 new_pos = ray.origin + t * ray.dir + eps*L;
+      // return vec3((length(new_pos - vec3(0, 0, 15))) / 50);
       ray = Ray(new_pos, L);
 
       // Didn't hit anything
@@ -493,11 +557,11 @@ vec3 rayTrace(Ray ray) {
       }
 
       // TODO: remove after debuggin sphere code
-      // if (mat.type == 1 && nextMat.type == 1) {
-      //   return vec3(1);
-      // } else {
-      //   return vec3(0);
-      // }
+      if (mat.type == 1 && nextMat.type == 1) {
+        return vec3(1);
+      } else {
+        return vec3(0);
+      }
 
       float brdfPdf;
       vec3 brdf = evalBSDF(mat, normal, H, V, L, new_pos, brdfPdf);

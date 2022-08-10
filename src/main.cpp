@@ -1,5 +1,5 @@
 // #define DEBUG_PROG
-// #define DEBUG_SINGLE
+#define DEBUG_SINGLE
 #include <GLFW/glfw3.h>
 #include <glad/glad.h>
 #include <iostream>
@@ -144,7 +144,7 @@ int main(int argc, char *argv[]) {
     // Render from fb2 texture
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, fbTexture2);
-    dispShader.setFloat("exposure", 2.2);
+    dispShader.setFloat("exposure", 5);
     dispShader.setInt("screenTexture", 0);
 #endif
 
