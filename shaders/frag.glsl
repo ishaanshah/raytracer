@@ -84,21 +84,20 @@ Material[5] wallsMat = Material[5](Material(
                                     0.05, vec3(0.5, 0.5, 0.5)
                                    ),
                                    Material(0, 0.9, vec3(0.5, 0.5, 0.5)),
-                                   Material(0, 0.9, vec3(0.0, 1.0, 0.0)),
-                                   Material(0, 0.01, vec3(1.0, 0.0, 0.0)),
+                                   Material(0, 0.2, vec3(0.0, 1.0, 0.0)),
+                                   Material(0, 0.2, vec3(1.0, 0.0, 0.0)),
                                    Material(0, 0.9, vec3(0.5, 0.5, 0.5)));
 
 // Sphere
-Sphere sphere = Sphere(vec3(2, -3.5, 3), 1.5);
-Material sphereMat = Material(1, 1.0, vec3(0.0, 0.0, 1.0));
+Sphere sphere = Sphere(vec3(0, -3.7, 3), 1.3);
+Material sphereMat = Material(1, 0.1, vec3(1.0, 1.0, 1.0));
 
 // Cuboid
-Cuboid cuboid = Cuboid(vec3(-4, -5, 0), vec3(-2, -2, 2));
-Material cuboidMat = Material(0, 0.3, vec3(0.2, 0.3, 1.0));
+Cuboid cuboid = Cuboid(vec3(-4, -5, -2), vec3(-1, 1, 1));
+Material cuboidMat = Material(0, 0.8, vec3(0.2, 0.3, 1.0));
 
 // Pyramid
-vec3 pyramidCenter = vec3(1.5, -5, -2);
-// vec3 pyramidCenter = vec3(3, 3, 0);
+vec3 pyramidCenter = vec3(2.5, -5, -2);
 // TODO: fix non y aligned normal
 vec3 pyramidNorm = vec3(0, 1, 0);
 float pyramidHeight = 4;
@@ -261,7 +260,7 @@ bool intersectSphere(Ray ray, Sphere sphere, out float t, out vec3 normal) {
   disc = sqrt(disc);
   t = -b - disc;
   normal = normalize(ray.origin + ray.dir * t - sphere.center);
-  return true;
+  return t > 0;
 }
 
 bool intersectTriangle(Ray ray, Triangle tri, out float t, out vec3 normal) {
@@ -289,14 +288,14 @@ bool intersect(Ray ray, bool shadow, out float t, out Material mat,
   float tmpT;
   vec3 tmpNorm;
 
-  // if (intersectSphere(ray, sphere, tmpT, tmpNorm)) {
-  //   intersect = true;
-  //   if (tmpT < t) {
-  //     t = tmpT;
-  //     mat = sphereMat;
-  //     normal = tmpNorm;
-  //   }
-  // }
+  if (intersectSphere(ray, sphere, tmpT, tmpNorm)) {
+    intersect = true;
+    if (tmpT < t) {
+      t = tmpT;
+      mat = sphereMat;
+      normal = tmpNorm;
+    }
+  }
 
   if (intersectCuboid(ray, cuboid, tmpT, tmpNorm)) {
     intersect = true;
@@ -560,13 +559,6 @@ vec3 rayTrace(Ray ray) {
       if (!intersect(ray, false, t, nextMat, nextNormal)) {
         break;
       }
-
-      // TODO: remove after debuggin sphere code
-      // if (mat.type == 1 && nextMat.type == 1) {
-      //   return vec3(1);
-      // } else {
-      //   return vec3(0);
-      // }
 
       float brdfPdf;
       vec3 brdf = evalBSDF(mat, normal, H, V, L, new_pos, brdfPdf);
