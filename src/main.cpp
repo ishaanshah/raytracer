@@ -1,5 +1,5 @@
 // #define DEBUG_PROG
-#define DEBUG_SINGLE
+// #define DEBUG_SINGLE
 #include <GLFW/glfw3.h>
 #include <glad/glad.h>
 #include <iostream>

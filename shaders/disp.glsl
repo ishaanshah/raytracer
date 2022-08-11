@@ -1,6 +1,6 @@
 #version 330 core
 
-#define DEBUG_COLOR
+// #define DEBUG_COLOR
 out vec4 fragColor;
 uniform float exposure;
 

@@ -97,7 +97,8 @@ Cuboid cuboid = Cuboid(vec3(-4, -5, 0), vec3(-2, -2, 2));
 Material cuboidMat = Material(0, 0.3, vec3(0.2, 0.3, 1.0));
 
 // Pyramid
-vec3 pyramidCenter = vec3(0.5, -5, -2);
+vec3 pyramidCenter = vec3(1.5, -5, -2);
+// vec3 pyramidCenter = vec3(3, 3, 0);
 // TODO: fix non y aligned normal
 vec3 pyramidNorm = vec3(0, 1, 0);
 float pyramidHeight = 4;
@@ -114,14 +115,14 @@ Triangle[4] pyrTris = Triangle[4](
   Triangle(pyramidTip, pyramidCenter + quad3*pyramidLength/2, pyramidCenter + quad0*pyramidLength/2)
 );
 Rectangle pyrBase = Rectangle(
-  vec4(pyramidNorm, -dot(pyramidNorm, pyramidCenter)),
+  vec4(-pyramidNorm, -dot(-pyramidNorm, pyramidCenter)),
   pyramidCenter,
   vec3(1, 0, 0),
   vec3(0, 0, 1),
   pyramidLength,
   pyramidLength
 );
-Material pyramidMat = Material(1, 1, vec3(1));
+Material pyramidMat = Material(0, 0.01, vec3(0, 0, 1));
 
 // Light
 Rectangle lightRect = Rectangle(vec4(0, -1, 0, 5 - eps), vec3(0, 5 - eps, 0),
@@ -164,7 +165,6 @@ vec3 rotationY(vec3 v, float a) {
   return r;
 }
 
-
 mat3 constructONBFrisvad(vec3 normal) {
   mat3 ret;
   ret[1] = normal;
@@ -189,6 +189,7 @@ Ray genRay(vec2 rng) {
   ray.origin = vec3(0, 0, 15);
   ray.dir = normalize(
       vec3(xy + rng.x * dFdx(xy) + rng.y * dFdy(xy), 15 - focalDistance) -
+      // vec3(xy, 15 - focalDistance) -
       ray.origin);
 
   return ray;
@@ -268,12 +269,13 @@ bool intersectTriangle(Ray ray, Triangle tri, out float t, out vec3 normal) {
     vec3 v2v0 = tri.v2 - tri.v0;
     vec3 rov0 = ray.origin - tri.v0;
     normal = cross(v1v0, v2v0);
-    vec3 q = cross(rov0, ray.dir);
-    float d = 1.0/dot(ray.dir, normal);
+    vec3 q = cross(rov0, -ray.dir);
+    float d = 1.0/dot(ray.dir, -normal);
     float u = d*dot(-q, v2v0);
     float v = d*dot(q, v1v0);
-    t = d*dot(-normal, rov0);
-    if (u < 0.0 || v < 0.0 || (u+v) > 1.0 ) {
+    t = d*dot(normal, rov0);
+    normal = normalize(normal);
+    if (u < 0.0 || v < 0.0 || (u+v) > 1.0 || t < 0.0) {
       return false;
     }
     return true;
@@ -543,12 +545,15 @@ vec3 rayTrace(Ray ray) {
       vec3 H = sampleNdf(mat.roughness, getRandom(), onb);
 #endif
 
-      return vec3(length(H/2));
       vec3 L = normalize(reflect(ray.dir, H));
+      
+      // Reflected ray and normal on opposite sides
+      // TODO: Modify when adding glass
+      if (dot(normal, L) < 0) {
+        break;
+      }
 
-      // New ray
       vec3 new_pos = ray.origin + t * ray.dir + eps*L;
-      // return vec3((length(new_pos - vec3(0, 0, 15))) / 50);
       ray = Ray(new_pos, L);
 
       // Didn't hit anything
@@ -557,11 +562,11 @@ vec3 rayTrace(Ray ray) {
       }
 
       // TODO: remove after debuggin sphere code
-      if (mat.type == 1 && nextMat.type == 1) {
-        return vec3(1);
-      } else {
-        return vec3(0);
-      }
+      // if (mat.type == 1 && nextMat.type == 1) {
+      //   return vec3(1);
+      // } else {
+      //   return vec3(0);
+      // }
 
       float brdfPdf;
       vec3 brdf = evalBSDF(mat, normal, H, V, L, new_pos, brdfPdf);
