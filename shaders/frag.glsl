@@ -2,9 +2,10 @@
 
 // #define DEBUG_ALBEDO
 // #define DEBUG_NORMALS
-// #define USE_NEE
+#define USE_NEE
 #define USE_VNDF
-#define USE_BVH
+// BVH is actually slower
+// #define USE_BVH
 
 out vec4 fragColor;
 
@@ -136,9 +137,8 @@ Material pyramidMat = Material(0, 0.01, vec3(0, 0, 1), 0);
 // Light
 Rectangle lightRect = Rectangle(vec4(0, -1, 0, 5 - eps), vec3(0, 5 - eps, 0),
                                 vec3(1, 0, 0), vec3(0, 0, 1),
-                                // 100, 100);
                                 5, 5);
-Material lightMat = Material(2, 0, vec3(1), 0);
+Material lightMat = Material(2, 0, vec3(2), 0);
 
 #ifdef USE_BVH
 // BVH Tree (stored in an array)
@@ -281,6 +281,7 @@ bool intersectSphere(Ray ray, Sphere sphere, out float t, out vec3 normal) {
   }
   disc = sqrt(disc);
   t = -b - disc;
+  t = t > 0 ? t : -b + disc;
   normal = normalize(ray.origin + ray.dir * t - sphere.center);
   return t > 0;
 }
@@ -597,7 +598,6 @@ vec3 rayTrace(Ray ray) {
   vec3 normal;
   vec3 contrib = vec3(0);
   vec3 tp = vec3(1);
-  vec3 pos = ray.origin;
 
 #ifdef DEBUG_ALBEDO
   if (intersect(ray, false, t, mat, normal)) {
@@ -637,18 +637,18 @@ vec3 rayTrace(Ray ray) {
       Material tMat;
       vec3 tNormal;
       bool hit =
-          intersect(Ray(ray.origin + eps * L, L), true, tTmp, tMat, tNormal);
+          intersect(Ray(newPos + eps * L, L), true, tTmp, tMat, tNormal);
       if (hit && tMat.type == 2) {
         vec3 H = normalize(V + L);
         
         float brdfPdf;
-        vec3 brdf = evalBSDF(mat, normal, H, V, L, ray.origin, brdfPdf);
+        vec3 brdf = evalBSDF(mat, normal, H, V, L, newPos, brdfPdf);
 
         float lightPdfW = pdfA2W(lightPdf, dist, dot(-L, tNormal));
 
         float misW = lightPdfW / (lightPdfW + brdfPdf);
 
-        contrib += misW * tMat.color * tp * brdf / lightPdfW;
+        contrib += misW * tMat.color * tp * brdf * clampDot(normal, L, true) / lightPdfW;
       }
     }
 #endif
@@ -664,8 +664,8 @@ vec3 rayTrace(Ray ray) {
 
       vec3 L = normalize(reflect(ray.dir, H));
       
-      vec3 new_pos = ray.origin + t * ray.dir + eps*L;
-      ray = Ray(new_pos, L);
+      vec3 newPos = ray.origin + t * ray.dir + eps*L;
+      ray = Ray(newPos, L);
 
       // Didn't hit anything
       if (!intersect(ray, false, t, nextMat, nextNormal)) {
@@ -673,7 +673,7 @@ vec3 rayTrace(Ray ray) {
       }
 
       float brdfPdf;
-      vec3 brdf = evalBSDF(mat, normal, H, V, L, new_pos, brdfPdf);
+      vec3 brdf = evalBSDF(mat, normal, H, V, L, newPos, brdfPdf);
 
       if (nextMat.type == 2) {
 #ifdef USE_NEE
@@ -685,7 +685,7 @@ vec3 rayTrace(Ray ray) {
         float misW = 1;
 #endif
 
-        contrib += misW * nextMat.color * tp * brdf / brdfPdf;
+        contrib += misW * nextMat.color * tp * brdf * clampDot(normal, L, true) / brdfPdf;
         break;
       }
 
