@@ -49,7 +49,6 @@ struct Sphere {
 };
 
 // Only support axis aligned for now
-// TODO: Support arbitrary orientation
 struct Cuboid {
   vec3 minPos;
   vec3 maxPos;
@@ -109,7 +108,6 @@ Material cuboidMat = Material(0, 0.8, vec3(0.2, 0.3, 1.0), 0);
 
 // Pyramid
 vec3 pyramidCenter = vec3(2.5, -5, -2);
-// TODO: fix non y aligned normal
 vec3 pyramidNorm = vec3(0, 1, 0);
 float pyramidHeight = 4;
 float pyramidLength = 3;
@@ -704,11 +702,13 @@ void main() {
 
   // Generate sample
   Ray ray = genRay(getRandom());
+  // vec3 op = clamp(rayTrace(ray), vec3(0), vec3(1));
   vec3 op = clamp(rayTrace(ray), vec3(0), vec3(1));
 
   // Get previous data
   vec3 prev = texture(prevFrame, gl_FragCoord.xy / resolution.xy).rgb;
 
   // Mix it to produce new frame
-  fragColor = vec4(mix(op, prev, acc), 1.0);
+  // fragColor = vec4(mix(op, prev, acc), 1.0);
+  fragColor = vec4(op * (1 - acc) + prev * acc, 1.0);
 }
