@@ -4,6 +4,7 @@
 // #define DEBUG_NORMALS
 // #define USE_NEE
 #define USE_VNDF
+#define USE_BVH
 
 out vec4 fragColor;
 
@@ -74,27 +75,36 @@ struct Material {
   int type;  // 0 for reflective, 1 for refractive, 2 for emmisive, 3 for checkerboard
   float roughness;
   vec3 color;
+  float ior;
 };
+
+#ifdef USE_BVH
+struct BVHNode {
+  Cuboid bbox;
+  int left; // Index of left node in array
+  int right; // Index of right node in array
+};
+#endif
 
 // Walls
 vec4[5] walls = vec4[5](vec4(0, 1, 0, 5), vec4(0, -1, 0, 5), vec4(1, 0, 0, 5),
                         vec4(-1, 0, 0, 5), vec4(0, 0, 1, 5));
 Material[5] wallsMat = Material[5](Material(
                                     checkerboard < 0 ? 0 : 3,
-                                    0.05, vec3(0.5, 0.5, 0.5)
+                                    0.05, vec3(0.5, 0.5, 0.5), 0
                                    ),
-                                   Material(0, 0.9, vec3(0.5, 0.5, 0.5)),
-                                   Material(0, 0.2, vec3(0.0, 1.0, 0.0)),
-                                   Material(0, 0.2, vec3(1.0, 0.0, 0.0)),
-                                   Material(0, 0.9, vec3(0.5, 0.5, 0.5)));
+                                   Material(0, 0.9, vec3(0.5, 0.5, 0.5), 0),
+                                   Material(0, 0.2, vec3(0.0, 1.0, 0.0), 0),
+                                   Material(0, 0.2, vec3(1.0, 0.0, 0.0), 0),
+                                   Material(0, 0.9, vec3(0.5, 0.5, 0.5), 0));
 
 // Sphere
 Sphere sphere = Sphere(vec3(0, -3.7, 3), 1.3);
-Material sphereMat = Material(1, 0.1, vec3(1.0, 1.0, 1.0));
+Material sphereMat = Material(1, 0.1, vec3(1.0, 1.0, 1.0), 1.4);
 
 // Cuboid
 Cuboid cuboid = Cuboid(vec3(-4, -5, -2), vec3(-1, 1, 1));
-Material cuboidMat = Material(0, 0.8, vec3(0.2, 0.3, 1.0));
+Material cuboidMat = Material(0, 0.8, vec3(0.2, 0.3, 1.0), 0);
 
 // Pyramid
 vec3 pyramidCenter = vec3(2.5, -5, -2);
@@ -121,14 +131,34 @@ Rectangle pyrBase = Rectangle(
   pyramidLength,
   pyramidLength
 );
-Material pyramidMat = Material(0, 0.01, vec3(0, 0, 1));
+Material pyramidMat = Material(0, 0.01, vec3(0, 0, 1), 0);
 
 // Light
 Rectangle lightRect = Rectangle(vec4(0, -1, 0, 5 - eps), vec3(0, 5 - eps, 0),
                                 vec3(1, 0, 0), vec3(0, 0, 1),
                                 // 100, 100);
                                 5, 5);
-Material lightMat = Material(2, 0, vec3(1));
+Material lightMat = Material(2, 0, vec3(1), 0);
+
+#ifdef USE_BVH
+// BVH Tree (stored in an array)
+Cuboid sphereBbox = Cuboid(sphere.center - sphere.radius, sphere.center + sphere.radius);
+Cuboid pyramidBbox = Cuboid(pyramidCenter -quad0*pyramidCenter, pyramidTip + quad0*pyramidCenter);
+Cuboid pyrCubBbox = Cuboid(min(pyramidBbox.minPos, cuboid.minPos), max(pyramidBbox.maxPos, cuboid.maxPos));
+Cuboid rootBbox = Cuboid(min(pyrCubBbox.minPos, sphereBbox.minPos), max(pyrCubBbox.maxPos, sphereBbox.maxPos));
+BVHNode[5] bvhTree = BVHNode[5](
+  // Root
+  BVHNode(rootBbox, 1, 2),
+  // Sphere
+  BVHNode(sphereBbox, -1, -1),
+  // Pyramid and Cuboid
+  BVHNode(pyrCubBbox, 3, 4),
+  // Pyramid
+  BVHNode(pyramidBbox, -2, -2),
+  // Cuboid
+  BVHNode(cuboid, -3, -3)
+);
+#endif
 
 // Random number generator
 void encryptTea(inout uvec2 arg) {
@@ -154,14 +184,6 @@ vec2 getRandom() {
 
 float clampDot(vec3 a, vec3 b, bool zero) {
   return max(dot(a, b), zero ? 0 : eps);
-}
-
-vec3 rotationY(vec3 v, float a) {
-  vec3 r;
-  r.x = v.x * cos(a) + v.z * sin(a);
-  r.y = v.y;
-  r.z = -v.x * sin(a) + v.z * cos(a);
-  return r;
 }
 
 mat3 constructONBFrisvad(vec3 normal) {
@@ -280,7 +302,102 @@ bool intersectTriangle(Ray ray, Triangle tri, out float t, out vec3 normal) {
     return true;
 }
 
-// TODO: BVH
+#ifdef USE_BVH
+bool intersect(Ray ray, bool shadow, out float t, out Material mat,
+               out vec3 normal) {
+  bool intersect = false;
+  t = inf;
+  float tmpT;
+  vec3 tmpNorm;
+
+  int bvhStack[5] = int[5](0, -1, -1, -1, -1);
+  // Root is already present
+  int front = 0;
+  while (front >= 0) {
+    // Pop from stack
+    BVHNode node = bvhTree[bvhStack[front]];
+    front -= 1;
+
+    if (intersectCuboid(ray, node.bbox, tmpT, tmpNorm)) {
+      if (node.left < 0) {
+        switch (node.left) {
+          case -1:
+            // Sphere
+            if (intersectSphere(ray, sphere, tmpT, tmpNorm)) {
+              intersect = true;
+              if (tmpT < t) {
+                t = tmpT;
+                mat = sphereMat;
+                normal = tmpNorm;
+              }
+            }
+            break;
+          case -2:
+            // Pyramid
+            for (int i = 0; i < 4; i += 1) {
+              if (intersectTriangle(ray, pyrTris[i], tmpT, tmpNorm)) {
+                intersect = true;
+                if (tmpT < t) {
+                  t = tmpT;
+                  mat = pyramidMat;
+                  normal = tmpNorm;
+                }
+              }
+            }
+            if (intersectRectangle(ray, pyrBase, tmpT, tmpNorm)) {
+              intersect = true;
+              if (tmpT < t) {
+                t = tmpT;
+                mat = pyramidMat;
+                normal = tmpNorm;
+              }
+            }
+            break;
+          case -3:
+            // Cuboid: Special case as BVH for it is same
+            intersect = true;
+            if (tmpT < t) {
+              t = tmpT;
+              mat = cuboidMat;
+              normal = tmpNorm;
+            }
+            break;
+        }
+      } else {
+        bvhStack[++front] = node.left;
+        bvhStack[++front] = node.right;
+      }
+    }
+  }
+
+  // Light
+  if (intersectRectangle(ray, lightRect, tmpT, tmpNorm)) {
+    intersect = true;
+    if (tmpT < t) {
+      t = tmpT;
+      mat = lightMat;
+      normal = tmpNorm;
+    }
+  }
+
+
+  // Walls don't cast shadows
+  if (!shadow) {
+    for (int i = 0; i < 5; i += 1) {
+      if (intersectPlane(ray, walls[i], tmpT, tmpNorm)) {
+        intersect = true;
+        if (tmpT < t) {
+          t = tmpT;
+          mat = wallsMat[i];
+          normal = tmpNorm;
+        }
+      }
+    }
+  }
+
+  return intersect;
+}
+#else
 bool intersect(Ray ray, bool shadow, out float t, out Material mat,
                out vec3 normal) {
   bool intersect = false;
@@ -351,6 +468,7 @@ bool intersect(Ray ray, bool shadow, out float t, out Material mat,
 
   return intersect;
 }
+#endif
 
 // Reflective GGX
 float D(vec3 N, vec3 H, float roughness) {
@@ -546,12 +664,6 @@ vec3 rayTrace(Ray ray) {
 
       vec3 L = normalize(reflect(ray.dir, H));
       
-      // Reflected ray and normal on opposite sides
-      // TODO: Modify when adding glass
-      if (dot(normal, L) < 0) {
-        break;
-      }
-
       vec3 new_pos = ray.origin + t * ray.dir + eps*L;
       ray = Ray(new_pos, L);
 
