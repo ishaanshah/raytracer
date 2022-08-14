@@ -1,7 +1,8 @@
-#version 330
+#version 430
 
 // #define DEBUG_ALBEDO
 // #define DEBUG_NORMALS
+// #define DEBUG_SINGLE
 #define USE_NEE
 #define USE_VNDF
 // BVH is actually slower
@@ -11,11 +12,9 @@ out vec4 fragColor;
 
 // Previous frame
 uniform sampler2D prevFrame;
-uniform float acc;
 
 // Render settings
 uniform int numBounces;
-uniform float time;
 uniform int seedInit;
 
 // Light properties
@@ -708,7 +707,10 @@ void main() {
   // Get previous data
   vec3 prev = texture(prevFrame, gl_FragCoord.xy / resolution.xy).rgb;
 
-  // Mix it to produce new frame
-  // fragColor = vec4(mix(op, prev, acc), 1.0);
-  fragColor = vec4(op * (1 - acc) + prev * acc, 1.0);
+  // Add to previous frame
+#ifndef DEBUG_SINGLE
+  fragColor = vec4(op + prev, 1);
+#else
+  fragColor = vec4(op, 1);
+#endif
 }

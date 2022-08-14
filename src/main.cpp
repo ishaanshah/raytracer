@@ -1,4 +1,3 @@
-// #define DEBUG_SINGLE
 #include <GLFW/glfw3.h>
 #include <glad/glad.h>
 #include <iostream>
@@ -101,6 +100,7 @@ int main(int argc, char *argv[]) {
 
   // Store start time
   double t0 = glfwGetTime();
+  glDisable(GL_DEPTH_TEST);
   while (!glfwWindowShouldClose(window) && samples <= SAMPLES) {
     // input
     // -----
@@ -133,6 +133,7 @@ int main(int argc, char *argv[]) {
     // Render from fb2 texture
     dispShader.setFloat("exposure", 5);
     dispShader.setInt("screenTexture", 0);
+    dispShader.setInt("samples", samples);
 
     glUniform2f(glGetUniformLocation(ID, "resolution"), SCR_SIZE, SCR_SIZE);
     glBindVertexArray(VAO);
@@ -191,11 +192,6 @@ void render(Shader &shader, float vertices[], unsigned int VAO,
   unsigned int ID = shader.ID;
 
   shader.setInt("prevFrame", 1);
-#ifndef DEBUG_SINGLE
-  shader.setFloat("acc", float(samples) / float(samples + 1));
-#else
-  shader.setFloat("acc", 0);
-#endif
 
   shader.setInt("samples", samples);
   shader.setInt("numBounces", 8);
@@ -225,8 +221,8 @@ unsigned int createFramebuffer(unsigned int *texture) {
   // Create a texture to write to
   glGenTextures(1, texture);
   glBindTexture(GL_TEXTURE_2D, *texture);
-  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, SCR_SIZE, SCR_SIZE, 0, GL_RGBA,
-               GL_UNSIGNED_BYTE, NULL);
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, SCR_SIZE, SCR_SIZE, 0, GL_RGBA,
+               GL_FLOAT, NULL);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
   glBindTexture(GL_TEXTURE_2D, 0);
