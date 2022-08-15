@@ -7,6 +7,4 @@ uniform sampler2D fb;
 
 uniform vec2 resolution;
 
-void main() {
-  fragColor = texture(fb, gl_FragCoord.xy / resolution.xy);
-}
+void main() { fragColor = texture(fb, gl_FragCoord.xy / resolution.xy); }

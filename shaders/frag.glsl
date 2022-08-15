@@ -71,7 +71,8 @@ struct Triangle {
 };
 
 struct Material {
-  int type;  // 0 for reflective, 1 for refractive, 2 for emmisive, 3 for checkerboard
+  int type;  // 0 for reflective, 1 for refractive, 2 for emmisive, 3 for
+             // checkerboard
   float roughness;
   vec3 color;
   float ior;
@@ -80,22 +81,20 @@ struct Material {
 #ifdef USE_BVH
 struct BVHNode {
   Cuboid bbox;
-  int left; // Index of left node in array
-  int right; // Index of right node in array
+  int left;   // Index of left node in array
+  int right;  // Index of right node in array
 };
 #endif
 
 // Walls
 vec4[5] walls = vec4[5](vec4(0, 1, 0, 5), vec4(0, -1, 0, 5), vec4(1, 0, 0, 5),
                         vec4(-1, 0, 0, 5), vec4(0, 0, 1, 5));
-Material[5] wallsMat = Material[5](Material(
-                                    checkerboard < 0 ? 0 : 3,
-                                    0.05, vec3(0.5, 0.5, 0.5), 0
-                                   ),
-                                   Material(0, 0.9, vec3(0.5, 0.5, 0.5), 0),
-                                   Material(0, 0.2, vec3(0.0, 1.0, 0.0), 0),
-                                   Material(0, 0.2, vec3(1.0, 0.0, 0.0), 0),
-                                   Material(0, 0.9, vec3(0.5, 0.5, 0.5), 0));
+Material[5] wallsMat = Material[5](
+    Material(checkerboard < 0 ? 0 : 3, 0.05, vec3(0.5, 0.5, 0.5), 0),
+    Material(0, 0.9, vec3(0.5, 0.5, 0.5), 0),
+    Material(0, 0.2, vec3(0.0, 1.0, 0.0), 0),
+    Material(0, 0.2, vec3(1.0, 0.0, 0.0), 0),
+    Material(0, 0.9, vec3(0.5, 0.5, 0.5), 0));
 
 // Sphere
 Sphere sphere = Sphere(vec3(0, -3.7, 3), 1.3);
@@ -110,51 +109,51 @@ vec3 pyramidCenter = vec3(2.5, -5, -2);
 vec3 pyramidNorm = vec3(0, 1, 0);
 float pyramidHeight = 4;
 float pyramidLength = 3;
-vec3 pyramidTip = pyramidCenter + pyramidHeight*pyramidNorm;
+vec3 pyramidTip = pyramidCenter + pyramidHeight * pyramidNorm;
 vec3 quad0 = vec3(1, 0, 1);
 vec3 quad1 = vec3(1, 0, -1);
 vec3 quad2 = vec3(-1, 0, -1);
 vec3 quad3 = vec3(-1, 0, 1);
-Triangle[4] pyrTris = Triangle[4](
-  Triangle(pyramidTip, pyramidCenter + quad0*pyramidLength/2, pyramidCenter + quad1*pyramidLength/2),
-  Triangle(pyramidTip, pyramidCenter + quad1*pyramidLength/2, pyramidCenter + quad2*pyramidLength/2),
-  Triangle(pyramidTip, pyramidCenter + quad2*pyramidLength/2, pyramidCenter + quad3*pyramidLength/2),
-  Triangle(pyramidTip, pyramidCenter + quad3*pyramidLength/2, pyramidCenter + quad0*pyramidLength/2)
-);
+Triangle[4] pyrTris =
+    Triangle[4](Triangle(pyramidTip, pyramidCenter + quad0 * pyramidLength / 2,
+                         pyramidCenter + quad1 * pyramidLength / 2),
+                Triangle(pyramidTip, pyramidCenter + quad1 * pyramidLength / 2,
+                         pyramidCenter + quad2 * pyramidLength / 2),
+                Triangle(pyramidTip, pyramidCenter + quad2 * pyramidLength / 2,
+                         pyramidCenter + quad3 * pyramidLength / 2),
+                Triangle(pyramidTip, pyramidCenter + quad3 * pyramidLength / 2,
+                         pyramidCenter + quad0 * pyramidLength / 2));
 Rectangle pyrBase = Rectangle(
-  vec4(-pyramidNorm, -dot(-pyramidNorm, pyramidCenter)),
-  pyramidCenter,
-  vec3(1, 0, 0),
-  vec3(0, 0, 1),
-  pyramidLength,
-  pyramidLength
-);
+    vec4(-pyramidNorm, -dot(-pyramidNorm, pyramidCenter)), pyramidCenter,
+    vec3(1, 0, 0), vec3(0, 0, 1), pyramidLength, pyramidLength);
 Material pyramidMat = Material(0, 0.01, vec3(0, 0, 1), 0);
 
 // Light
 Rectangle lightRect = Rectangle(vec4(0, -1, 0, 5 - eps), vec3(0, 5 - eps, 0),
-                                vec3(1, 0, 0), vec3(0, 0, 1),
-                                5, 5);
+                                vec3(1, 0, 0), vec3(0, 0, 1), 5, 5);
 Material lightMat = Material(2, 0, vec3(2), 0);
 
 #ifdef USE_BVH
 // BVH Tree (stored in an array)
-Cuboid sphereBbox = Cuboid(sphere.center - sphere.radius, sphere.center + sphere.radius);
-Cuboid pyramidBbox = Cuboid(pyramidCenter -quad0*pyramidCenter, pyramidTip + quad0*pyramidCenter);
-Cuboid pyrCubBbox = Cuboid(min(pyramidBbox.minPos, cuboid.minPos), max(pyramidBbox.maxPos, cuboid.maxPos));
-Cuboid rootBbox = Cuboid(min(pyrCubBbox.minPos, sphereBbox.minPos), max(pyrCubBbox.maxPos, sphereBbox.maxPos));
+Cuboid sphereBbox =
+    Cuboid(sphere.center - sphere.radius, sphere.center + sphere.radius);
+Cuboid pyramidBbox = Cuboid(pyramidCenter - quad0 * pyramidCenter,
+                            pyramidTip + quad0 * pyramidCenter);
+Cuboid pyrCubBbox = Cuboid(min(pyramidBbox.minPos, cuboid.minPos),
+                           max(pyramidBbox.maxPos, cuboid.maxPos));
+Cuboid rootBbox = Cuboid(min(pyrCubBbox.minPos, sphereBbox.minPos),
+                         max(pyrCubBbox.maxPos, sphereBbox.maxPos));
 BVHNode[5] bvhTree = BVHNode[5](
-  // Root
-  BVHNode(rootBbox, 1, 2),
-  // Sphere
-  BVHNode(sphereBbox, -1, -1),
-  // Pyramid and Cuboid
-  BVHNode(pyrCubBbox, 3, 4),
-  // Pyramid
-  BVHNode(pyramidBbox, -2, -2),
-  // Cuboid
-  BVHNode(cuboid, -3, -3)
-);
+    // Root
+    BVHNode(rootBbox, 1, 2),
+    // Sphere
+    BVHNode(sphereBbox, -1, -1),
+    // Pyramid and Cuboid
+    BVHNode(pyrCubBbox, 3, 4),
+    // Pyramid
+    BVHNode(pyramidBbox, -2, -2),
+    // Cuboid
+    BVHNode(cuboid, -3, -3));
 #endif
 
 // Random number generator
@@ -240,32 +239,32 @@ bool intersectCuboid(Ray ray, Cuboid cuboid, out float t, out vec3 normal) {
   float tMin = 0;
   float tMax = inf;
 
-	vec3 div = 1.0 / ray.dir;
-	vec3 t1 = (cuboid.minPos - ray.origin) * div;
-	vec3 t2 = (cuboid.maxPos - ray.origin) * div;
+  vec3 div = 1.0 / ray.dir;
+  vec3 t1 = (cuboid.minPos - ray.origin) * div;
+  vec3 t2 = (cuboid.maxPos - ray.origin) * div;
 
-	vec3 tMin2 = min(t1, t2);
-	vec3 tMax2 = max(t1, t2);
+  vec3 tMin2 = min(t1, t2);
+  vec3 tMax2 = max(t1, t2);
 
-	tMin = max(max(tMin2.x, tMin2.y), max(tMin2.z, tMin));
-	tMax = min(min(tMax2.x, tMax2.y), min(tMax2.z, tMax));
+  tMin = max(max(tMin2.x, tMin2.y), max(tMin2.z, tMin));
+  tMax = min(min(tMax2.x, tMax2.y), min(tMax2.z, tMax));
   t = tMin;
 
   vec3 center = (cuboid.minPos + cuboid.maxPos) / 2;
-  normal = ray.origin + t*ray.dir - center;
+  normal = ray.origin + t * ray.dir - center;
 
   vec3 an = abs(normal) / (cuboid.maxPos - cuboid.minPos);
   if (an.x > an.y && an.x > an.z) {
     normal = vec3(normal.x > 0 ? 1 : -1, 0, 0);
   }
   if (an.y > an.x && an.y > an.z) {
-    normal = vec3(0, normal.y > 0 ? 1: -1, 0);
+    normal = vec3(0, normal.y > 0 ? 1 : -1, 0);
   }
   if (an.z > an.x && an.z > an.y) {
     normal = vec3(0, 0, normal.z > 0 ? 1 : -1);
   }
 
-	return tMin < tMax;
+  return tMin < tMax;
 }
 
 bool intersectSphere(Ray ray, Sphere sphere, out float t, out vec3 normal) {
@@ -284,20 +283,20 @@ bool intersectSphere(Ray ray, Sphere sphere, out float t, out vec3 normal) {
 }
 
 bool intersectTriangle(Ray ray, Triangle tri, out float t, out vec3 normal) {
-    vec3 v1v0 = tri.v1 - tri.v0;
-    vec3 v2v0 = tri.v2 - tri.v0;
-    vec3 rov0 = ray.origin - tri.v0;
-    normal = cross(v1v0, v2v0);
-    vec3 q = cross(rov0, -ray.dir);
-    float d = 1.0/dot(ray.dir, -normal);
-    float u = d*dot(-q, v2v0);
-    float v = d*dot(q, v1v0);
-    t = d*dot(normal, rov0);
-    normal = normalize(normal);
-    if (u < 0.0 || v < 0.0 || (u+v) > 1.0 || t < 0.0) {
-      return false;
-    }
-    return true;
+  vec3 v1v0 = tri.v1 - tri.v0;
+  vec3 v2v0 = tri.v2 - tri.v0;
+  vec3 rov0 = ray.origin - tri.v0;
+  normal = cross(v1v0, v2v0);
+  vec3 q = cross(rov0, -ray.dir);
+  float d = 1.0 / dot(ray.dir, -normal);
+  float u = d * dot(-q, v2v0);
+  float v = d * dot(q, v1v0);
+  t = d * dot(normal, rov0);
+  normal = normalize(normal);
+  if (u < 0.0 || v < 0.0 || (u + v) > 1.0 || t < 0.0) {
+    return false;
+  }
+  return true;
 }
 
 #ifdef USE_BVH
@@ -377,7 +376,6 @@ bool intersect(Ray ray, bool shadow, out float t, out Material mat,
       normal = tmpNorm;
     }
   }
-
 
   // Walls don't cast shadows
   if (!shadow) {
@@ -564,21 +562,21 @@ float pdfA2W(float pdf, float dist2, float cos_theta) {
   return pdf * dist2 / abs_cos_theta;
 }
 
-vec3 evalBSDF(Material mat, vec3 N, vec3 H, vec3 V, vec3 L, vec3 pos, out float pdf) {
+vec3 evalBSDF(Material mat, vec3 N, vec3 H, vec3 V, vec3 L, vec3 pos,
+              out float pdf) {
   float d = D(N, H, mat.roughness);
   float g = G(N, V, L, mat.roughness);
   vec3 color = mat.color;
   // Check if checkerboard material
   if (mat.type == 3) {
     float fac = 2 * pi / checkerboard;
-    if (sin(fac * pos.x)*sin(fac * pos.y)*sin(fac * pos.z) < 0) {
+    if (sin(fac * pos.x) * sin(fac * pos.y) * sin(fac * pos.z) < 0) {
       color = vec3(0.1, 0.1, 0.1);
     }
   }
   vec3 f = F(L, H, color);
   vec3 brdf = d * g * f;
-  brdf = brdf /
-         (4 * clampDot(N, H, false) * clampDot(N, L, false));
+  brdf = brdf / (4 * clampDot(N, H, false) * clampDot(N, L, false));
 
 #ifdef USE_VNDF
   pdf = sampleVndfPdf(V, H, d);
@@ -633,11 +631,10 @@ vec3 rayTrace(Ray ray) {
       float tTmp;
       Material tMat;
       vec3 tNormal;
-      bool hit =
-          intersect(Ray(newPos + eps * L, L), true, tTmp, tMat, tNormal);
+      bool hit = intersect(Ray(newPos + eps * L, L), true, tTmp, tMat, tNormal);
       if (hit && tMat.type == 2) {
         vec3 H = normalize(V + L);
-        
+
         float brdfPdf;
         vec3 brdf = evalBSDF(mat, normal, H, V, L, newPos, brdfPdf);
 
@@ -645,7 +642,8 @@ vec3 rayTrace(Ray ray) {
 
         float misW = lightPdfW / (lightPdfW + brdfPdf);
 
-        contrib += misW * tMat.color * tp * brdf * clampDot(normal, L, true) / lightPdfW;
+        contrib += misW * tMat.color * tp * brdf * clampDot(normal, L, true) /
+                   lightPdfW;
       }
     }
 #endif
@@ -660,8 +658,8 @@ vec3 rayTrace(Ray ray) {
 #endif
 
       vec3 L = normalize(reflect(ray.dir, H));
-      
-      vec3 newPos = ray.origin + t * ray.dir + eps*L;
+
+      vec3 newPos = ray.origin + t * ray.dir + eps * L;
       ray = Ray(newPos, L);
 
       // Didn't hit anything
@@ -682,7 +680,8 @@ vec3 rayTrace(Ray ray) {
         float misW = 1;
 #endif
 
-        contrib += misW * nextMat.color * tp * brdf * clampDot(normal, L, true) / brdfPdf;
+        contrib += misW * nextMat.color * tp * brdf *
+                   clampDot(normal, L, true) / brdfPdf;
         break;
       }
 

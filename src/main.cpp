@@ -145,15 +145,15 @@ int main(int argc, char *argv[]) {
     glfwSwapBuffers(window);
     glfwPollEvents();
 
-    std::cout << "Progress: " << samples << "/" << SAMPLES << " samples" << '\r';
+    std::cout << "Progress: " << samples << "/" << SAMPLES << " samples"
+              << '\r';
   }
 
   // Write to file
   std::cout << "INFO::Output image written to " << PATH << std::endl;
   saveImage(PATH, window);
 
-  std::cout << "INFO::Time taken: " << glfwGetTime() - t0 << "s"
-            << std::endl;
+  std::cout << "INFO::Time taken: " << glfwGetTime() - t0 << "s" << std::endl;
 
   // Deallocate all resources once they've outlived their purpose
   glDeleteVertexArrays(1, &VAO);
